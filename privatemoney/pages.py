@@ -506,9 +506,11 @@ class SettingsPage(QScrollArea):
         steps=QLabel("1. Set Plaid API credentials  →  2. Connect bank in Plaid Link  →  3. Refresh & sync")
         steps.setWordWrap(True); steps.setStyleSheet(f"color:{theme.MUTED}; background:transparent;"); p.addWidget(steps)
         self.plaid_status=QLabel(); self.plaid_status.setWordWrap(True); self.plaid_status.setStyleSheet(f"color:{theme.MUTED}"); p.addWidget(self.plaid_status)
-        envrow=QHBoxLayout(); envlbl=QLabel("Environment"); self.env=QComboBox(); self.env.addItems(["Sandbox","Production"]); envrow.addWidget(envlbl); envrow.addStretch(); envrow.addWidget(self.env); p.addLayout(envrow)
+        environment_note=QLabel("Production · real bank data")
+        environment_note.setStyleSheet(f"color:{theme.MUTED}; background:transparent;")
+        p.addWidget(environment_note)
         self.client_id=QLineEdit(); self.client_id.setPlaceholderText("Plaid client_id")
-        self.secret=QLineEdit(); self.secret.setPlaceholderText("Plaid secret"); self.secret.setEchoMode(QLineEdit.Password)
+        self.secret=QLineEdit(); self.secret.setPlaceholderText("Plaid Production secret"); self.secret.setEchoMode(QLineEdit.Password)
         p.addWidget(self.client_id); p.addWidget(self.secret)
         buttons=QHBoxLayout(); self.configure_btn=QPushButton("Set API credentials"); self.configure_btn.setObjectName("Secondary"); self.configure_btn.clicked.connect(self._configure_plaid)
         self.connect_btn=QPushButton("Connect bank"); self.connect_btn.setObjectName("Primary"); self.connect_btn.clicked.connect(self._connect_bank)
@@ -575,7 +577,7 @@ class SettingsPage(QScrollArea):
 
     def _configure_plaid(self):
         try:
-            self.plaid.configure(self.client_id.text(),self.secret.text(),self.env.currentText())
+            self.plaid.configure(self.client_id.text(),self.secret.text())
             if self.vault.unlocked:
                 self.vault.save_runtime(self.state, self.plaid)
             self.secret.clear(); self.refresh()
@@ -609,10 +611,8 @@ class SettingsPage(QScrollArea):
         self.configure_btn.setEnabled(unlocked)
         self.client_id.setEnabled(unlocked)
         self.secret.setEnabled(unlocked)
-        self.env.setEnabled(unlocked)
         self.connect_btn.setEnabled(unlocked and self.plaid.configured)
         self.sync_btn.setEnabled(unlocked and self.plaid.connected)
-        self.env.setCurrentText(self.plaid.environment)
 
         if self.vault.unlocked:
             access_text = "PrivateMoney is unlocked on this computer."

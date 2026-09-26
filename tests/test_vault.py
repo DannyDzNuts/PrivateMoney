@@ -77,7 +77,7 @@ class VaultTests(unittest.TestCase):
             )
 
             plaid = PlaidBridge(state)
-            plaid.configure("client-id", "secret-value", "Sandbox")
+            plaid.configure("client-id", "secret-value")
             with plaid._lock:
                 plaid._access_token = "access-token"
                 plaid._item_id = "item-id"

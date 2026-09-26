@@ -17,7 +17,7 @@ class CoreTests(unittest.TestCase):
         with urllib.request.urlopen(self.api.base_url+"/api/v1/health") as r:
             body=json.load(r)
         self.assertEqual(body["status"],"ok")
-        self.assertEqual(body["version"],"0.5.3")
+        self.assertEqual(body["version"],"0.5.4")
 
     def test_finance_requires_bearer(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
@@ -31,6 +31,28 @@ class CoreTests(unittest.TestCase):
         self.assertIn("net_worth",body); self.assertEqual(body["source"],"local")
 
 
+
+    def test_plaid_configure_forces_production(self):
+        bridge=PlaidBridge(FinanceState())
+        bridge.configure("  client-id\n", " production-secret \n", "Sandbox")
+        session=bridge.session_snapshot()
+        self.assertEqual(session["client_id"],"client-id")
+        self.assertEqual(session["secret"],"production-secret")
+        self.assertEqual(session["environment"],"Production")
+
+    def test_plaid_does_not_restore_old_sandbox_session(self):
+        bridge=PlaidBridge(FinanceState())
+        bridge.restore_session({
+            "client_id":"client-id",
+            "secret":"sandbox-secret",
+            "environment":"Sandbox",
+            "access_token":"access-sandbox-test",
+            "item_id":"item",
+            "cursor":None,
+        })
+        self.assertFalse(bridge.configured)
+        self.assertFalse(bridge.connected)
+        self.assertIn("Production",bridge.status)
 
     def test_plaid_refresh_then_sync(self):
         bridge=PlaidBridge(FinanceState())

@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS plaid_session (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     client_id TEXT NOT NULL DEFAULT '',
     secret TEXT NOT NULL DEFAULT '',
-    environment TEXT NOT NULL DEFAULT 'Sandbox',
+    environment TEXT NOT NULL DEFAULT 'Production',
     access_token TEXT NOT NULL DEFAULT '',
     item_id TEXT NOT NULL DEFAULT '',
     cursor TEXT

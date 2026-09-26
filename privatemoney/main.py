@@ -3,9 +3,10 @@ from __future__ import annotations
 import os
 import secrets
 import sys
+from pathlib import Path
 
 from PySide6.QtCore import QEvent, QRectF, QTimer, Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -37,6 +38,10 @@ from .plaid import PlaidBridge
 from .state import FinanceState
 from .storage import VaultManager
 from .theme import APP_QSS, MUTED
+
+
+def app_icon() -> QIcon:
+    return QIcon(str(Path(__file__).resolve().parent / "assets" / "privatemoney.svg"))
 
 
 class PasswordDialog(QDialog):
@@ -73,10 +78,7 @@ class PasswordDialog(QDialog):
         self.password = QLineEdit()
         self.password.setEchoMode(QLineEdit.Password)
         self.password.setPlaceholderText("Password")
-        if mode == "create":
-            self.password.returnPressed.connect(self._focus_confirmation)
-        else:
-            self.password.returnPressed.connect(self._submit)
+        self.password.installEventFilter(self)
         layout.addWidget(self.password)
 
         self.confirm = None
@@ -84,7 +86,7 @@ class PasswordDialog(QDialog):
             self.confirm = QLineEdit()
             self.confirm.setEchoMode(QLineEdit.Password)
             self.confirm.setPlaceholderText("Confirm password")
-            self.confirm.returnPressed.connect(self._submit)
+            self.confirm.installEventFilter(self)
             layout.addWidget(self.confirm)
 
         self.error = QLabel()
@@ -99,22 +101,48 @@ class PasswordDialog(QDialog):
             forgot.setObjectName("Danger")
             forgot.setMinimumWidth(170)
             forgot.setMinimumHeight(38)
+            forgot.setAutoDefault(False)
+            forgot.setDefault(False)
             forgot.clicked.connect(self._forgot_password)
             buttons.addWidget(forgot)
         buttons.addStretch()
 
         cancel = QPushButton("Exit" if mode == "create" else "Cancel")
         cancel.setObjectName("Secondary")
+        cancel.setAutoDefault(False)
+        cancel.setDefault(False)
         cancel.clicked.connect(self.reject)
         buttons.addWidget(cancel)
 
         submit = QPushButton("Create password" if mode == "create" else "Unlock")
         submit.setObjectName("Primary")
+        submit.setAutoDefault(False)
+        submit.setDefault(False)
         submit.clicked.connect(self._submit)
         buttons.addWidget(submit)
         layout.addLayout(buttons)
 
         QTimer.singleShot(0, self.password.setFocus)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.KeyPress and event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            if obj is self.password and self.mode == "create":
+                self._focus_confirmation()
+            else:
+                self._submit()
+            event.accept()
+            return True
+        return super().eventFilter(obj, event)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            if self.mode == "create" and self.focusWidget() is self.password:
+                self._focus_confirmation()
+            else:
+                self._submit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def _focus_confirmation(self):
         if self.confirm is not None:
@@ -261,6 +289,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PrivateMoney")
+        self.setWindowIcon(app_icon())
         self.resize(1440, 900)
         self.setMinimumSize(1100, 720)
 
@@ -545,6 +574,7 @@ class MainWindow(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("PrivateMoney")
+    app.setWindowIcon(app_icon())
     app.setStyle("Fusion")
     app.setStyleSheet(APP_QSS)
     window = MainWindow()

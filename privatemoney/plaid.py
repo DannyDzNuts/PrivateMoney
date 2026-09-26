@@ -18,17 +18,15 @@ class PlaidBridge:
     Credentials, access tokens, and sync cursors are intentionally kept in memory only
     in the current development build. Nothing sensitive is written to disk.
     """
-    HOSTS = {
-        "Sandbox": "https://sandbox.plaid.com",
-        "Production": "https://production.plaid.com",
-    }
+    HOST = "https://production.plaid.com"
+    ENVIRONMENT = "Production"
 
     def __init__(self, state):
         self.state = state
         self._lock = RLock()
         self._client_id = ""
         self._secret = ""
-        self._environment = "Sandbox"
+        self._environment = self.ENVIRONMENT
         self._access_token = ""
         self._item_id = ""
         self._cursor: str | None = None
@@ -53,15 +51,14 @@ class PlaidBridge:
 
     @property
     def environment(self) -> str:
-        with self._lock:
-            return self._environment
+        return self.ENVIRONMENT
 
     def session_snapshot(self) -> dict:
         with self._lock:
             return {
                 "client_id": self._client_id,
                 "secret": self._secret,
-                "environment": self._environment,
+                "environment": self.ENVIRONMENT,
                 "access_token": self._access_token,
                 "item_id": self._item_id,
                 "cursor": self._cursor,
@@ -69,18 +66,29 @@ class PlaidBridge:
 
     def restore_session(self, session: dict):
         with self._lock:
-            self._client_id = str(session.get("client_id") or "")
-            self._secret = str(session.get("secret") or "")
-            environment = str(session.get("environment") or "Sandbox")
-            self._environment = environment if environment in self.HOSTS else "Sandbox"
-            self._access_token = str(session.get("access_token") or "")
-            self._item_id = str(session.get("item_id") or "")
-            self._cursor = session.get("cursor")
+            saved_environment = str(session.get("environment") or "")
+            self._environment = self.ENVIRONMENT
             self._transactions.clear()
+
+            # Production-only from 0.5.4 onward. Never reuse Sandbox credentials/tokens.
+            if saved_environment and saved_environment != self.ENVIRONMENT:
+                self._client_id = ""
+                self._secret = ""
+                self._access_token = ""
+                self._item_id = ""
+                self._cursor = None
+                self._status = "Production Plaid credentials required · previous Sandbox session was not reused"
+                return
+
+            self._client_id = str(session.get("client_id") or "").strip()
+            self._secret = str(session.get("secret") or "").strip()
+            self._access_token = str(session.get("access_token") or "").strip()
+            self._item_id = str(session.get("item_id") or "").strip()
+            self._cursor = session.get("cursor")
             if self._access_token:
-                self._status = "Connected from encrypted vault · ready to refresh & sync"
+                self._status = "Connected from encrypted storage · ready to refresh & sync"
             elif self._client_id and self._secret:
-                self._status = f"API credentials restored for {self._environment} · next: Connect bank"
+                self._status = "Production API credentials restored · next: Connect bank"
             else:
                 self._status = "Not configured"
 
@@ -94,22 +102,21 @@ class PlaidBridge:
             self._transactions.clear()
             self._status = "Not configured"
 
-    def configure(self, client_id: str, secret: str, environment: str):
-        client_id = client_id.strip()
-        secret = secret.strip()
+    def configure(self, client_id: str, secret: str, environment: str | None = None):
+        # Strip copied whitespace/newlines and always use Production.
+        client_id = "".join(client_id.split())
+        secret = "".join(secret.split())
         if not client_id or not secret:
-            raise PlaidError("Plaid client ID and secret are required.")
-        if environment not in self.HOSTS:
-            raise PlaidError("Unsupported Plaid environment.")
+            raise PlaidError("Plaid client ID and Production secret are required.")
         with self._lock:
             self._client_id = client_id
             self._secret = secret
-            self._environment = environment
+            self._environment = self.ENVIRONMENT
             self._access_token = ""
             self._item_id = ""
             self._cursor = None
             self._transactions.clear()
-            self._status = f"API credentials set for {environment} · next: Connect bank"
+            self._status = "Production API credentials set · next: Connect bank"
 
     def create_link_session(self) -> str:
         if not self.configured:
@@ -234,7 +241,7 @@ class PlaidBridge:
         with self._lock:
             client_id = self._client_id
             secret = self._secret
-            host = self.HOSTS[self._environment]
+            host = self.HOST
         if not client_id or not secret:
             raise PlaidError("Plaid is not configured.")
         raw = json.dumps(payload).encode("utf-8")
@@ -246,7 +253,7 @@ class PlaidBridge:
                 "Content-Type": "application/json",
                 "PLAID-CLIENT-ID": client_id,
                 "PLAID-SECRET": secret,
-                "User-Agent": "PrivateMoney/0.2",
+                "User-Agent": f"PrivateMoney/{__version__}",
             },
         )
         try:
@@ -259,6 +266,18 @@ class PlaidBridge:
                 message = body.get("error_message") or "Plaid request failed."
                 request_id = body.get("request_id")
                 suffix = f" · request {request_id}" if request_id else ""
+
+                if code == "INVALID_API_KEYS":
+                    raise PlaidError(
+                        "INVALID_API_KEYS: Plaid rejected the Production client ID/secret. "
+                        "Use the Production secret from the same Plaid team, not the Sandbox secret"
+                        + suffix
+                    ) from None
+                if code == "UNAUTHORIZED_ENVIRONMENT":
+                    raise PlaidError(
+                        "UNAUTHORIZED_ENVIRONMENT: this Plaid team is not enabled for Production/Trial access"
+                        + suffix
+                    ) from None
                 raise PlaidError(f"{code}: {message}{suffix}") from None
             except (json.JSONDecodeError, UnicodeDecodeError):
                 raise PlaidError(f"Plaid request failed with HTTP {exc.code}.") from None

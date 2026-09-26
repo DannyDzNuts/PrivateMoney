@@ -7,6 +7,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ["PRIVATE_MONEY_TESTING"] = "1"
 
 from PySide6.QtWidgets import QApplication
+from PySide6.QtTest import QTest
+from PySide6.QtCore import Qt
 
 from privatemoney.main import MainWindow, PasswordDialog
 from privatemoney.models import Account
@@ -16,6 +18,22 @@ class AccessFlowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_create_password_enter_moves_to_confirmation(self):
+        dialog=PasswordDialog("create")
+        dialog.show()
+        self.app.processEvents()
+        try:
+            dialog.password.setText("correct horse battery staple")
+            dialog.password.setFocus()
+            self.app.processEvents()
+            QTest.keyClick(dialog.password, Qt.Key_Return)
+            self.app.processEvents()
+            self.assertEqual(dialog.result(),0)
+            self.assertIs(dialog.focusWidget(),dialog.confirm)
+            self.assertEqual(dialog.error.text(),"")
+        finally:
+            dialog.close()
 
     def test_create_password_validation_stays_open(self):
         dialog=PasswordDialog("create")
