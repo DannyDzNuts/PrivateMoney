@@ -18,6 +18,17 @@ PrivateMoney now includes an encrypted SQLCipher vault for local persistence. Th
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.5
+
+- Guided statement import from CSV, QFX, and OFX files
+- CSV column mapping for date, description, and amount
+- Automatic column guesses for common bank CSV exports
+- Optional CSV amount-sign inversion
+- Statement preview before import
+- Import into an existing account or create a local account by typing a new name
+- Duplicate prevention using stable source/account transaction IDs
+- Statement importing requires PrivateMoney to be unlocked
+
 ## Added in 0.4.1
 
 - First-run **Create password** prompt when no local vault exists

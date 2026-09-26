@@ -199,7 +199,7 @@ class MainWindow(QMainWindow):
         self.pages = [
             DashboardPage(self.state),
             AccountsPage(self.state),
-            TransactionsPage(self.state),
+            TransactionsPage(self.state, self.vault),
             BudgetsPage(self.state),
             RecurringPage(self.state),
             NetWorthPage(self.state),
@@ -318,6 +318,7 @@ class MainWindow(QMainWindow):
         try:
             self.vault.create(dialog.value)
             self.vault.save_runtime(self.state, self.plaid)
+            self._last_version = -1
         except Exception as exc:
             QMessageBox.warning(self, "Create password", str(exc))
             QTimer.singleShot(0, self._prompt_create_password)

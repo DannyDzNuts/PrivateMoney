@@ -3,11 +3,12 @@ import threading
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
-    QApplication, QAbstractItemView, QComboBox, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
+    QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget
 )
 from .charts import CashFlowChart, DonutChart, LineChart
+from .importers import AMOUNT_CANDIDATES, DATE_CANDIDATES, DESCRIPTION_CANDIDATES, guess_column, parse_csv, parse_ofx, read_csv_headers
 from .widgets import BudgetRow, Card, MetricCard, money
 from . import theme
 
@@ -88,19 +89,268 @@ class AccountsPage(QWidget):
         for c in range(5): header.setSectionResizeMode(c,QHeaderView.Stretch if c<3 else QHeaderView.ResizeToContents)
 
 
+class StatementImportDialog(QDialog):
+    def __init__(self, state, vault, parent=None):
+        super().__init__(parent)
+        self.state=state
+        self.vault=vault
+        self.rows=[]
+        self.skipped=0
+        self.file_type=""
+        self.setWindowTitle("Import statement")
+        self.setObjectName("PasswordDialog")
+        self.resize(760,560)
+
+        l=QVBoxLayout(self)
+        l.setContentsMargins(22,22,22,22)
+        l.setSpacing(12)
+
+        title=QLabel("Import statement")
+        title.setObjectName("SectionTitle")
+        l.addWidget(title)
+
+        sub=QLabel("Choose a CSV, QFX, or OFX statement and review what will be added.")
+        sub.setWordWrap(True)
+        sub.setStyleSheet(f"color:{theme.MUTED}")
+        l.addWidget(sub)
+
+        file_row=QHBoxLayout()
+        self.file=QLineEdit()
+        self.file.setReadOnly(True)
+        self.file.setPlaceholderText("Choose a statement file…")
+        browse=QPushButton("Choose file")
+        browse.setObjectName("Secondary")
+        browse.clicked.connect(self._browse)
+        file_row.addWidget(self.file,1)
+        file_row.addWidget(browse)
+        l.addLayout(file_row)
+
+        account_row=QHBoxLayout()
+        account_row.addWidget(QLabel("Account"))
+        self.account=QComboBox()
+        self.account.setEditable(True)
+        self.account.addItems([a.name for a in state.accounts()])
+        self.account.setPlaceholderText("Account name")
+        self.account.currentTextChanged.connect(self._refresh_preview)
+        account_row.addWidget(self.account,1)
+        l.addLayout(account_row)
+
+        self.mapping_widget=QWidget()
+        mapping=QVBoxLayout(self.mapping_widget)
+        mapping.setContentsMargins(0,0,0,0)
+        mapping.setSpacing(8)
+
+        grid=QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(8)
+        self.date_col=QComboBox()
+        self.desc_col=QComboBox()
+        self.amount_col=QComboBox()
+        for row,(label,box) in enumerate((
+            ("Date",self.date_col),
+            ("Description",self.desc_col),
+            ("Amount",self.amount_col),
+        )):
+            grid.addWidget(QLabel(label),row,0)
+            grid.addWidget(box,row,1)
+        mapping.addLayout(grid)
+
+        self.invert=QCheckBox("Invert amount signs")
+        self.invert.setToolTip("Use this when a CSV exports purchases as positive numbers.")
+        mapping.addWidget(self.invert)
+        l.addWidget(self.mapping_widget)
+        self.mapping_widget.hide()
+
+        for box in (self.date_col,self.desc_col,self.amount_col):
+            box.currentTextChanged.connect(self._refresh_preview)
+        self.invert.toggled.connect(self._refresh_preview)
+
+        self.preview=QTableWidget(0,3)
+        self.preview.setHorizontalHeaderLabels(["Date","Description","Amount"])
+        style_table(self.preview)
+        self.preview.horizontalHeader().setSectionResizeMode(0,QHeaderView.ResizeToContents)
+        self.preview.horizontalHeader().setSectionResizeMode(1,QHeaderView.Stretch)
+        self.preview.horizontalHeader().setSectionResizeMode(2,QHeaderView.ResizeToContents)
+        self.preview.setMinimumHeight(230)
+        l.addWidget(self.preview,1)
+
+        self.summary=QLabel("Choose a statement file to begin.")
+        self.summary.setStyleSheet(f"color:{theme.MUTED}")
+        l.addWidget(self.summary)
+
+        buttons=QHBoxLayout()
+        buttons.addStretch()
+        cancel=QPushButton("Cancel")
+        cancel.setObjectName("Secondary")
+        cancel.clicked.connect(self.reject)
+        self.import_btn=QPushButton("Import")
+        self.import_btn.setObjectName("Primary")
+        self.import_btn.setEnabled(False)
+        self.import_btn.clicked.connect(self._import)
+        buttons.addWidget(cancel)
+        buttons.addWidget(self.import_btn)
+        l.addLayout(buttons)
+
+    def _browse(self):
+        path,_=QFileDialog.getOpenFileName(
+            self,
+            "Choose statement",
+            "",
+            "Statements (*.csv *.qfx *.ofx);;CSV files (*.csv);;QFX / OFX files (*.qfx *.ofx);;All files (*)",
+        )
+        if not path:
+            return
+
+        from pathlib import Path
+        suffix=Path(path).suffix.lower()
+        if suffix not in {".csv",".qfx",".ofx"}:
+            QMessageBox.warning(
+                self,
+                "Import statement",
+                "Choose a CSV, QFX, or OFX statement file.",
+            )
+            return
+
+        self.file.setText(path)
+        if not self.account.currentText().strip():
+            self.account.setEditText(
+                Path(path).stem.replace("_"," ").replace("-"," ").title()
+            )
+
+        if suffix == ".csv":
+            self.file_type="csv"
+            self.mapping_widget.show()
+            try:
+                headers=read_csv_headers(path)
+                if not headers:
+                    raise ValueError("This CSV does not contain a header row.")
+            except Exception as exc:
+                QMessageBox.warning(self,"Import statement",str(exc))
+                return
+
+            for box in (self.date_col,self.desc_col,self.amount_col):
+                box.blockSignals(True)
+                box.clear()
+                box.addItems(headers)
+                box.blockSignals(False)
+
+            guesses=[
+                (self.date_col,guess_column(headers,DATE_CANDIDATES)),
+                (self.desc_col,guess_column(headers,DESCRIPTION_CANDIDATES)),
+                (self.amount_col,guess_column(headers,AMOUNT_CANDIDATES)),
+            ]
+            for box,value in guesses:
+                if value is not None:
+                    box.setCurrentText(value)
+        else:
+            self.file_type="ofx"
+            self.mapping_widget.hide()
+
+        self._refresh_preview()
+
+    def _refresh_preview(self):
+        path=self.file.text().strip()
+        account=self.account.currentText().strip()
+        if not path or not self.file_type:
+            self.import_btn.setEnabled(False)
+            return
+
+        try:
+            if self.file_type == "csv":
+                if not (
+                    self.date_col.currentText()
+                    and self.desc_col.currentText()
+                    and self.amount_col.currentText()
+                ):
+                    self.import_btn.setEnabled(False)
+                    return
+                rows,skipped=parse_csv(
+                    path,
+                    date_col=self.date_col.currentText(),
+                    description_col=self.desc_col.currentText(),
+                    amount_col=self.amount_col.currentText(),
+                    invert_amounts=self.invert.isChecked(),
+                )
+            else:
+                rows,skipped=parse_ofx(path)
+        except Exception as exc:
+            self.rows=[]
+            self.preview.setRowCount(0)
+            self.summary.setText(str(exc))
+            self.import_btn.setEnabled(False)
+            return
+
+        self.rows=rows
+        self.skipped=skipped
+        shown=rows[:12]
+        self.preview.setRowCount(len(shown))
+        for r,row in enumerate(shown):
+            vals=[
+                row.posted.strftime("%b %d, %Y"),
+                row.merchant,
+                money(row.amount_cents/100),
+            ]
+            for c,val in enumerate(vals):
+                item=QTableWidgetItem(val)
+                if c==2:
+                    item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                self.preview.setItem(r,c,item)
+
+        suffix=f" · {skipped} skipped" if skipped else ""
+        kind="CSV" if self.file_type=="csv" else "QFX / OFX"
+        self.summary.setText(
+            f"{len(rows)} valid {kind} transactions{suffix}. "
+            f"Showing the first {len(shown)}."
+        )
+        self.import_btn.setEnabled(
+            bool(rows and account and self.vault.unlocked)
+        )
+
+    def _import(self):
+        if not self.vault.unlocked:
+            QMessageBox.warning(
+                self,
+                "Import statement",
+                "Unlock PrivateMoney before importing.",
+            )
+            return
+
+        result=self.state.import_transactions(
+            self.account.currentText(),
+            self.rows,
+        )
+        QMessageBox.information(
+            self,
+            "Import complete",
+            f"Imported {result['imported']} transactions.\n"
+            f"Skipped {result['duplicates']} duplicates.",
+        )
+        self.accept()
+
+
 class TransactionsPage(QWidget):
-    def __init__(self, state, parent=None):
-        super().__init__(parent); self.state=state
+    def __init__(self, state, vault=None, parent=None):
+        super().__init__(parent); self.state=state; self.vault=vault
         l=QVBoxLayout(self); l.setContentsMargins(28,24,28,28); l.setSpacing(16)
         top=QHBoxLayout(); top.addWidget(page_header("Transactions","Search and review local or Plaid-synced activity.")); top.addStretch()
-        btn=QPushButton("Import statement"); btn.setObjectName("Primary"); btn.setEnabled(False); btn.setToolTip("Statement import wizard is next on the roadmap")
-        top.addWidget(btn); l.addLayout(top)
+        self.import_btn=QPushButton("Import statement"); self.import_btn.setObjectName("Primary"); self.import_btn.clicked.connect(self._import_statement)
+        top.addWidget(self.import_btn); l.addLayout(top)
         self.search=QLineEdit(); self.search.setPlaceholderText("Search merchant, category, or account…"); l.addWidget(self.search)
         self.table=transaction_table([]); l.addWidget(self.table,1)
         self.search.textChanged.connect(lambda q: filter_table(self.table,q)); self.refresh()
 
+    def _import_statement(self):
+        if self.vault is None or not self.vault.unlocked:
+            QMessageBox.information(self,"Import statement","Unlock PrivateMoney before importing a statement.")
+            return
+        dialog=StatementImportDialog(self.state,self.vault,self)
+        dialog.exec()
+        self.refresh()
+
     def refresh(self):
         fill_transaction_table(self.table,self.state.transactions()); filter_table(self.table,self.search.text())
+        self.import_btn.setEnabled(bool(self.vault and self.vault.unlocked))
+        self.import_btn.setToolTip("" if self.import_btn.isEnabled() else "Unlock PrivateMoney to import statements.")
 
 
 class BudgetsPage(QWidget):
@@ -188,10 +438,10 @@ class SettingsPage(QScrollArea):
         self.client_id=QLineEdit(); self.client_id.setPlaceholderText("Plaid client_id")
         self.secret=QLineEdit(); self.secret.setPlaceholderText("Plaid secret"); self.secret.setEchoMode(QLineEdit.Password)
         p.addWidget(self.client_id); p.addWidget(self.secret)
-        buttons=QHBoxLayout(); configure=QPushButton("Set API credentials"); configure.setObjectName("Secondary"); configure.clicked.connect(self._configure_plaid)
+        buttons=QHBoxLayout(); self.configure_btn=QPushButton("Set API credentials"); self.configure_btn.setObjectName("Secondary"); self.configure_btn.clicked.connect(self._configure_plaid)
         self.connect_btn=QPushButton("Connect bank"); self.connect_btn.setObjectName("Primary"); self.connect_btn.clicked.connect(self._connect_bank)
         self.sync_btn=QPushButton("Refresh & sync"); self.sync_btn.setObjectName("Secondary"); self.sync_btn.setToolTip("Requests a fresh Plaid transaction update when Transactions Refresh is available, then syncs available changes."); self.sync_btn.clicked.connect(self._sync_now)
-        buttons.addWidget(configure); buttons.addWidget(self.connect_btn); buttons.addWidget(self.sync_btn); buttons.addStretch(); p.addLayout(buttons)
+        buttons.addWidget(self.configure_btn); buttons.addWidget(self.connect_btn); buttons.addWidget(self.sync_btn); buttons.addStretch(); p.addLayout(buttons)
         self.plaid_privacy=QLabel(); privacy=self.plaid_privacy
         privacy.setWordWrap(True); privacy.setStyleSheet(f"color:{theme.MUTED}"); p.addWidget(privacy); l.addWidget(pc)
 
@@ -243,8 +493,13 @@ class SettingsPage(QScrollArea):
     def refresh(self):
         self.api_status.setText(f"Running at {self.api_server.base_url}/api/v1")
         self.plaid_status.setText(self.plaid.status)
-        self.connect_btn.setEnabled(self.plaid.configured)
-        self.sync_btn.setEnabled(self.plaid.connected)
+        unlocked=self.vault.unlocked
+        self.configure_btn.setEnabled(unlocked)
+        self.client_id.setEnabled(unlocked)
+        self.secret.setEnabled(unlocked)
+        self.env.setEnabled(unlocked)
+        self.connect_btn.setEnabled(unlocked and self.plaid.configured)
+        self.sync_btn.setEnabled(unlocked and self.plaid.connected)
         self.env.setCurrentText(self.plaid.environment)
 
         if self.vault.unlocked:

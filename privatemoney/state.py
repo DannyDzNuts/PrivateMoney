@@ -1,9 +1,11 @@
 from __future__ import annotations
 import os
+import uuid
 from collections import defaultdict
 from datetime import date
 from threading import RLock
 from .models import Account, Transaction
+from .importers import external_id_for
 from .sample_data import ACCOUNTS, BUDGETS, CASHFLOW, NET_WORTH, RECURRING, SPENDING, TRANSACTIONS
 
 
@@ -91,6 +93,63 @@ class FinanceState:
                 "account_count": len(self._accounts),
                 "transaction_count": len(txs),
             }
+
+    def import_transactions(self, account_name: str, rows) -> dict:
+        account_name = account_name.strip()
+        if not account_name:
+            raise ValueError("Account name is required.")
+
+        with self._lock:
+            account = next(
+                (a for a in self._accounts if a.name.casefold() == account_name.casefold()),
+                None,
+            )
+            created_account = account is None
+            if account is None:
+                account = Account(
+                    id=f"local-{uuid.uuid4()}",
+                    name=account_name,
+                    kind="checking",
+                    institution="Imported",
+                    current_balance=0.0,
+                    available_balance=None,
+                    mask=None,
+                )
+                self._accounts.append(account)
+
+            existing_ids = {t.external_id for t in self._transactions if t.external_id}
+            imported = 0
+            duplicates = 0
+            for row in rows:
+                external_id = external_id_for(account.name, row)
+                if external_id in existing_ids:
+                    duplicates += 1
+                    continue
+                self._transactions.append(
+                    Transaction(
+                        posted=row.posted,
+                        merchant=row.merchant,
+                        category="Other",
+                        account=account.name,
+                        amount=round(row.amount_cents / 100.0, 2),
+                        pending=False,
+                        external_id=external_id,
+                    )
+                )
+                existing_ids.add(external_id)
+                imported += 1
+
+            self._transactions.sort(key=lambda x: x.posted, reverse=True)
+            self._spending = self._derive_spending(self._transactions)
+            self._cashflow = self._derive_cashflow(self._transactions)
+            if not self._net_worth:
+                self._net_worth = [(
+                    "Now",
+                    round(sum(a.current_balance for a in self._accounts), 2),
+                )]
+            if imported or created_account:
+                self._version += 1
+            return {"imported": imported, "duplicates": duplicates, "account": account.name}
 
     def restore_snapshot(self, snapshot: dict):
         with self._lock:
