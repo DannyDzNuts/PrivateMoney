@@ -48,7 +48,7 @@ class DashboardPage(QWidget):
         self.cashflow_chart=CashFlowChart(state.cashflow())
         grid.addWidget(card_with_title("Net worth", self.net_chart, "Recent trend"),0,0,1,2)
         grid.addWidget(card_with_title("Spending mix", self.spend_chart, "Latest month"),0,2)
-        grid.addWidget(card_with_title("Cash flow", self.cashflow_chart, "Income vs. outflow"),1,0,1,2)
+        grid.addWidget(card_with_title("Cash flow", self.cashflow_chart, "Income vs. spending"),1,0,1,2)
         budgets=QWidget(); budgets.setStyleSheet("background:transparent;"); bl=QVBoxLayout(budgets); bl.setContentsMargins(0,0,0,0); bl.setSpacing(2)
         for b in state.budgets(): bl.addWidget(BudgetRow(b.category,b.spent,b.limit))
         bl.addStretch(); grid.addWidget(card_with_title("Budgets",budgets,"Current plan"),1,2)
@@ -62,7 +62,11 @@ class DashboardPage(QWidget):
         live=s["source"]=="plaid"
         self.net_card.set_value(money(s["net_worth"])); self.net_card.set_delta("Across tracked accounts", True)
         self.cash_card.set_value(money(s["cash_available"])); self.cash_card.set_delta(f"{s['account_count']} accounts", True)
-        self.spend_card.set_value(money(-s["month_spending"])); self.spend_card.set_delta(f"Income {money(s['month_income'])}", s["month_income"] >= s["month_spending"])
+        self.spend_card.set_value(money(s["month_spending"]))
+        variance=s["spending_variance"]
+        sign="+" if variance > 0 else ("-" if variance < 0 else "")
+        variance_text="Variance: " + sign + "$" + f"{abs(variance):,.2f}" + " vs last month"
+        self.spend_card.set_delta(variance_text, variance <= 0)
         self.recurring_card.set_value(money(-s["upcoming_recurring"])); self.recurring_card.set_delta("Pattern detection pending" if live else "Upcoming scheduled charges", True)
         self.net_chart.set_points(self.state.net_worth())
         self.spend_chart.set_segments(self.state.spending())
@@ -424,8 +428,18 @@ class TransactionsPage(QWidget):
         dialog.exec()
         self.refresh()
 
+    def _category_changed(self, transaction, category):
+        self.state.set_transaction_category(transaction,category)
+        filter_table(self.table,self.search.text())
+
     def refresh(self):
-        fill_transaction_table(self.table,self.state.transactions()); filter_table(self.table,self.search.text())
+        fill_transaction_table(
+            self.table,
+            self.state.transactions(),
+            category_callback=self._category_changed,
+            categories=self.state.categories(),
+        )
+        filter_table(self.table,self.search.text())
         self.import_btn.setEnabled(bool(self.vault and self.vault.unlocked))
         self.import_btn.setToolTip("" if self.import_btn.isEnabled() else "Unlock PrivateMoney to import statements.")
 
@@ -466,20 +480,64 @@ class NetWorthPage(QWidget):
         super().__init__(parent); self.state=state
         l=QVBoxLayout(self); l.setContentsMargins(28,24,28,28); l.setSpacing(16)
         l.addWidget(page_header("Net worth","Assets minus liabilities, tracked over time."))
-        self.chart=LineChart(state.net_worth()); l.addWidget(card_with_title("Net worth history",self.chart,"History will build over time"),1)
+        self.chart=LineChart(state.net_worth()); l.addWidget(card_with_title("Net worth history",self.chart,"Reconstructed from transaction dates"),1)
     def refresh(self): self.chart.set_points(self.state.net_worth())
 
 
 class ReportsPage(QWidget):
     def __init__(self, state, parent=None):
         super().__init__(parent); self.state=state
-        l=QVBoxLayout(self); l.setContentsMargins(28,24,28,28); l.setSpacing(16)
+        l=QVBoxLayout(self); l.setContentsMargins(28,24,28,28); l.setSpacing(14)
         l.addWidget(page_header("Reports","Understand patterns without sending dashboard data anywhere."))
+
         grid=QGridLayout(); grid.setSpacing(14)
         self.spend=DonutChart(state.spending()); self.cash=CashFlowChart(state.cashflow())
-        grid.addWidget(card_with_title("Spending by category",self.spend),0,0); grid.addWidget(card_with_title("Income vs. outflow",self.cash),0,1)
-        l.addLayout(grid,1)
-    def refresh(self): self.spend.set_segments(self.state.spending()); self.cash.set_rows(self.state.cashflow())
+        grid.addWidget(card_with_title("Spending by category",self.spend),0,0)
+        grid.addWidget(card_with_title("Income vs. spending",self.cash),0,1)
+        l.addLayout(grid)
+
+        filters=QHBoxLayout()
+        filters.addWidget(QLabel("Category"))
+        self.category_filter=QComboBox()
+        self.category_filter.setMinimumWidth(220)
+        self.category_filter.currentIndexChanged.connect(self._apply_category_filter)
+        filters.addWidget(self.category_filter)
+        self.category_summary=QLabel()
+        self.category_summary.setStyleSheet(f"color:{theme.MUTED}")
+        filters.addWidget(self.category_summary)
+        filters.addStretch()
+        l.addLayout(filters)
+
+        self.transactions=transaction_table([])
+        l.addWidget(self.transactions,1)
+        self.refresh()
+
+    def _apply_category_filter(self, *_):
+        category=self.category_filter.currentData()
+        rows=self.state.transactions_for_category(category)
+        fill_transaction_table(self.transactions,rows)
+        if rows:
+            total=sum(t.amount for t in rows)
+            self.category_summary.setText(
+                f"{len(rows)} transactions · net {money(total)}"
+            )
+        else:
+            self.category_summary.setText("No matching transactions")
+
+    def refresh(self):
+        self.spend.set_segments(self.state.spending())
+        self.cash.set_rows(self.state.cashflow())
+
+        previous=self.category_filter.currentData()
+        self.category_filter.blockSignals(True)
+        self.category_filter.clear()
+        self.category_filter.addItem("All categories",None)
+        for category in self.state.categories():
+            self.category_filter.addItem(category,category)
+        index=self.category_filter.findData(previous)
+        self.category_filter.setCurrentIndex(index if index >= 0 else 0)
+        self.category_filter.blockSignals(False)
+        self._apply_category_filter()
 
 
 class SettingsPage(QScrollArea):
@@ -635,29 +693,77 @@ def style_table(table):
     table.setSelectionBehavior(QAbstractItemView.SelectRows); table.setEditTriggers(QAbstractItemView.NoEditTriggers)
 
 
-def transaction_table(items, compact=False):
-    table=QTableWidget(0,5); table.setHorizontalHeaderLabels(["Date","Merchant","Category","Account","Amount"]); style_table(table)
-    fill_transaction_table(table,items)
-    if compact: table.setMinimumHeight(230); table.setMaximumHeight(260)
+def transaction_table(items, compact=False, category_callback=None, categories=None):
+    table=QTableWidget(0,5)
+    table.setHorizontalHeaderLabels(["Date","Merchant","Category","Account","Amount"])
+    style_table(table)
+    fill_transaction_table(
+        table,
+        items,
+        category_callback=category_callback,
+        categories=categories,
+    )
+    if compact:
+        table.setMinimumHeight(230); table.setMaximumHeight(260)
     return table
 
 
-def fill_transaction_table(table: QTableWidget, items):
-    table.clearSpans(); table.setRowCount(len(items))
+def fill_transaction_table(
+    table: QTableWidget,
+    items,
+    category_callback=None,
+    categories=None,
+):
+    table.clearSpans()
+    table.setRowCount(len(items))
+    options=list(categories or [])
+
     for r,t in enumerate(items):
-        vals=[t.posted.strftime("%b %d"),t.merchant,t.category,t.account,money(t.amount)]
-        for c,val in enumerate(vals):
-            item=QTableWidgetItem(val)
+        values=[t.posted.strftime("%b %d"),t.merchant,t.category,t.account,money(t.amount)]
+        for c,value in enumerate(values):
+            if c == 2 and category_callback is not None:
+                combo=QComboBox()
+                choices=list(options)
+                if t.category and t.category not in choices:
+                    choices.append(t.category)
+                    choices.sort(key=str.casefold)
+                combo.addItems(choices)
+                combo.setCurrentText(t.category or "Other")
+                combo.currentTextChanged.connect(
+                    lambda category, tx=t: category_callback(tx,category)
+                )
+                table.setCellWidget(r,c,combo)
+                continue
+
+            item=QTableWidgetItem(value)
             if c==4:
-                item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter); item.setForeground(QColor(theme.POSITIVE if t.amount>=0 else theme.NEGATIVE))
-            if t.pending: item.setToolTip("Pending")
+                item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                item.setForeground(
+                    QColor(theme.POSITIVE if t.amount>=0 else theme.NEGATIVE)
+                )
+            if t.pending:
+                item.setToolTip("Pending")
             table.setItem(r,c,item)
+
     hh=table.horizontalHeader()
-    for c in range(5): hh.setSectionResizeMode(c,QHeaderView.Stretch if c in (1,2,3) else QHeaderView.ResizeToContents)
+    for c in range(5):
+        hh.setSectionResizeMode(
+            c,
+            QHeaderView.Stretch if c in (1,2,3) else QHeaderView.ResizeToContents,
+        )
 
 
 def filter_table(table: QTableWidget, query: str):
     q=query.strip().lower()
     for row in range(table.rowCount()):
-        text=" ".join((table.item(row,c).text() if table.item(row,c) else "") for c in range(table.columnCount())).lower()
+        parts=[]
+        for c in range(table.columnCount()):
+            widget=table.cellWidget(row,c)
+            if isinstance(widget,QComboBox):
+                parts.append(widget.currentText())
+            else:
+                item=table.item(row,c)
+                if item:
+                    parts.append(item.text())
+        text=" ".join(parts).lower()
         table.setRowHidden(row, q not in text)

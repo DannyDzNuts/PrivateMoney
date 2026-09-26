@@ -18,6 +18,17 @@ PrivateMoney now includes an encrypted SQLCipher vault for local persistence. Th
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.7
+
+- Net-worth history is reconstructed immediately from current balances and transaction dates
+- Multiple transactions on the same day become one end-of-day net-worth point
+- This-month spending card shows dollar variance versus the previous month
+- Cash-flow charts use green for income and red for spending
+- Sharper, more saturated Midnight Violet accent palette
+- Reports can filter by category and show matching transactions
+- Transaction categories are editable from a dropdown in the Transactions table
+- Manual category changes persist locally and survive later Plaid syncs
+
 ## Added in 0.6
 
 - Multiple Plaid Items/banks are retained simultaneously instead of the newest bank replacing the previous one

@@ -63,7 +63,7 @@ class FinanceState:
 
     def net_worth(self):
         with self._lock:
-            return list(self._net_worth)
+            return self._derive_net_worth(self._accounts, self._transactions)
 
     def spending(self):
         with self._lock:
@@ -82,6 +82,15 @@ class FinanceState:
             today = date.today()
             month_spend = sum(-t.amount for t in txs if t.amount < 0 and t.posted.year == today.year and t.posted.month == today.month)
             month_income = sum(t.amount for t in txs if t.amount > 0 and t.posted.year == today.year and t.posted.month == today.month)
+            previous_year = today.year if today.month > 1 else today.year - 1
+            previous_month = today.month - 1 if today.month > 1 else 12
+            previous_month_spending = sum(
+                -t.amount for t in txs
+                if t.amount < 0
+                and t.posted.year == previous_year
+                and t.posted.month == previous_month
+            )
+            spending_variance = month_spend - previous_month_spending
             upcoming = sum(r.amount for r in self._recurring)
             return {
                 "source": self._source,
@@ -89,10 +98,48 @@ class FinanceState:
                 "cash_available": round(cash, 2),
                 "month_spending": round(month_spend, 2),
                 "month_income": round(month_income, 2),
+                "previous_month_spending": round(previous_month_spending, 2),
+                "spending_variance": round(spending_variance, 2),
                 "upcoming_recurring": round(upcoming, 2),
                 "account_count": len(self._accounts),
                 "transaction_count": len(txs),
             }
+
+    DEFAULT_CATEGORIES = (
+        "Bills", "Dining", "Entertainment", "Groceries", "Healthcare",
+        "Income", "Other", "Shopping", "Subscriptions", "Transfer",
+        "Transportation", "Travel",
+    )
+
+    def categories(self):
+        with self._lock:
+            values = set(self.DEFAULT_CATEGORIES)
+            values.update(t.category for t in self._transactions if t.category)
+            return sorted(values, key=str.casefold)
+
+    def transactions_for_category(self, category: str | None):
+        with self._lock:
+            if not category:
+                return list(self._transactions)
+            return [t for t in self._transactions if t.category == category]
+
+    def set_transaction_category(self, transaction: Transaction, category: str):
+        category = category.strip() or "Other"
+        with self._lock:
+            target = None
+            for tx in self._transactions:
+                if tx is transaction:
+                    target = tx
+                    break
+                if transaction.external_id and tx.external_id == transaction.external_id:
+                    target = tx
+                    break
+            if target is None or target.category == category:
+                return False
+            target.category = category
+            self._spending = self._derive_spending(self._transactions)
+            self._version += 1
+            return True
 
     def import_transactions(self, account_name: str, rows, use_account_column: bool = False) -> dict:
         account_name = account_name.strip()
@@ -214,6 +261,12 @@ class FinanceState:
                 )
             ]
 
+            existing_categories = {
+                t.external_id: t.category
+                for t in self._transactions
+                if t.external_id and t.category
+            }
+
             account_map = {a.id: a for a in local_accounts}
             for account in accounts:
                 account_map[account.id] = account
@@ -225,6 +278,8 @@ class FinanceState:
                 )
                 tx_map[key] = tx
             for tx in transactions:
+                if tx.external_id and tx.external_id in existing_categories:
+                    tx.category = existing_categories[tx.external_id]
                 key = tx.external_id or (
                     f"plaid:{tx.posted}:{tx.merchant}:{tx.amount}:{tx.account}"
                 )
@@ -243,6 +298,30 @@ class FinanceState:
             self._spending = self._derive_spending(self._transactions)
             self._cashflow = self._derive_cashflow(self._transactions)
             self._version += 1
+
+    @staticmethod
+    def _derive_net_worth(accounts: list[Account], transactions: list[Transaction]):
+        if not accounts:
+            return []
+
+        current = round(sum(a.current_balance for a in accounts), 2)
+        if not transactions:
+            return [(date.today().isoformat(), current)]
+
+        changes = defaultdict(float)
+        for tx in transactions:
+            changes[tx.posted] += tx.amount
+
+        working = current
+        by_date = {}
+        for posted in sorted(changes, reverse=True):
+            by_date[posted] = round(working, 2)
+            working -= changes[posted]
+
+        return [
+            (posted.isoformat(), by_date[posted])
+            for posted in sorted(by_date)
+        ]
 
     @staticmethod
     def _derive_spending(transactions: list[Transaction]):

@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 )
 from . import theme
 
-PALETTE = [theme.VIOLET, theme.CYAN, theme.BLUE, theme.POSITIVE, theme.WARNING, "#E49BFF"]
+PALETTE = [theme.VIOLET, theme.CYAN, theme.BLUE, theme.POSITIVE, theme.WARNING, "#F97316", "#EC4899"]
 
 
 class ChartBase(QWidget):
@@ -34,9 +34,19 @@ class LineChart(ChartBase):
         self.points = list(points)
         self.update()
 
+    @staticmethod
+    def _display_label(label):
+        from datetime import date
+        text = str(label)
+        try:
+            return date.fromisoformat(text).strftime("%b %d")
+        except ValueError:
+            return text
+
     def paintEvent(self, event):
         if not self.points:
             return
+
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         r = self.rect().adjusted(16, 18, -16, -26)
@@ -46,38 +56,79 @@ class LineChart(ChartBase):
         lo -= pad
         hi += pad
         graph = QRectF(r.left() + 12, r.top() + 8, r.width() - 24, r.height() - 30)
+
         p.setPen(QPen(QColor(theme.OUTLINE), 1))
         for i in range(4):
             y = graph.top() + graph.height() * i / 3
             p.drawLine(QPointF(graph.left(), y), QPointF(graph.right(), y))
+
         pts = []
-        n = max(len(self.points) - 1, 1)
-        for i, (_, val) in enumerate(self.points):
-            x = graph.left() + graph.width() * i / n
-            y = graph.bottom() - (val - lo) / (hi - lo) * graph.height()
-            pts.append(QPointF(x, y))
-        area = QPainterPath()
-        area.moveTo(pts[0].x(), graph.bottom())
-        area.lineTo(pts[0])
-        for pt in pts[1:]:
-            area.lineTo(pt)
-        area.lineTo(pts[-1].x(), graph.bottom())
-        area.closeSubpath()
-        fill = QColor(theme.VIOLET)
-        fill.setAlpha(28)
-        p.fillPath(area, fill)
-        path = QPainterPath(pts[0])
-        for pt in pts[1:]:
-            path.lineTo(pt)
-        p.setPen(QPen(QColor(theme.VIOLET), 3, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-        p.drawPath(path)
+        if len(self.points) == 1:
+            value = self.points[0][1]
+            y = graph.bottom() - (value - lo) / (hi - lo) * graph.height()
+            pts = [QPointF(graph.center().x(), y)]
+            guide = QColor(theme.VIOLET)
+            guide.setAlpha(90)
+            p.setPen(QPen(guide, 1.4, Qt.DashLine))
+            p.drawLine(QPointF(graph.left(), y), QPointF(graph.right(), y))
+        else:
+            n = len(self.points) - 1
+            for i, (_, value) in enumerate(self.points):
+                x = graph.left() + graph.width() * i / n
+                y = graph.bottom() - (value - lo) / (hi - lo) * graph.height()
+                pts.append(QPointF(x, y))
+
+            area = QPainterPath()
+            area.moveTo(pts[0].x(), graph.bottom())
+            area.lineTo(pts[0])
+            for pt in pts[1:]:
+                area.lineTo(pt)
+            area.lineTo(pts[-1].x(), graph.bottom())
+            area.closeSubpath()
+            fill = QColor(theme.VIOLET)
+            fill.setAlpha(34)
+            p.fillPath(area, fill)
+
+            path = QPainterPath(pts[0])
+            for pt in pts[1:]:
+                path.lineTo(pt)
+            p.setPen(QPen(QColor(theme.VIOLET), 2.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            p.drawPath(path)
+
         p.setBrush(QColor(theme.VIOLET))
         p.setPen(Qt.NoPen)
         for pt in pts:
-            p.drawEllipse(pt, 4, 4)
-        for i, (label, _) in enumerate(self.points):
-            x = graph.left() + graph.width() * i / n
-            self._text(p, x - 10, r.bottom() - 2, label, size=9)
+            p.drawEllipse(pt, 4.5, 4.5)
+
+        if len(self.points) == 1:
+            self._text(
+                p,
+                graph.center().x() - 20,
+                r.bottom() - 2,
+                self._display_label(self.points[0][0]),
+                size=9,
+            )
+            label = "$" + f"{self.points[0][1]:,.0f}"
+            self._text(
+                p,
+                graph.center().x() - 36,
+                pts[0].y() - 12,
+                label,
+                theme.IVORY,
+                10,
+                True,
+            )
+        else:
+            count = len(self.points)
+            step = max(1, (count - 1) // 5)
+            indexes = set(range(0, count, step))
+            indexes.add(count - 1)
+            n = count - 1
+            for i, (label, _) in enumerate(self.points):
+                if i not in indexes:
+                    continue
+                x = graph.left() + graph.width() * i / n
+                self._text(p, x - 18, r.bottom() - 2, self._display_label(label), size=9)
 
 
 class _DonutCanvas(ChartBase):
@@ -260,6 +311,6 @@ class CashFlowChart(ChartBase):
             p.setPen(Qt.NoPen)
             p.setBrush(QColor(theme.POSITIVE))
             p.drawRoundedRect(QRectF(cx - bw - 2, r.bottom() - h1, bw, h1), 4, 4)
-            p.setBrush(QColor(theme.VIOLET))
+            p.setBrush(QColor(theme.NEGATIVE))
             p.drawRoundedRect(QRectF(cx + 2, r.bottom() - h2, bw, h2), 4, 4)
             self._text(p, cx - 11, self.height() - 9, label, size=9)

@@ -1,17 +1,17 @@
 BLACK = "#000000"
-CHARCOAL = "#101013"
-CARD = "#151519"
-CARD_HOVER = "#1B1B21"
-DEEP_VIOLET = "#241B35"
-VIOLET = "#BDA0FF"
-IVORY = "#F5F2FA"
-MUTED = "#A7A2AD"
-OUTLINE = "#2D2D35"
-POSITIVE = "#74D6A0"
-NEGATIVE = "#FF8E9A"
-WARNING = "#F4C66D"
-BLUE = "#83B7FF"
-CYAN = "#71D6D1"
+CHARCOAL = "#0D0D10"
+CARD = "#121217"
+CARD_HOVER = "#1A1A22"
+DEEP_VIOLET = "#21143A"
+VIOLET = "#8B5CF6"
+IVORY = "#FAFAFC"
+MUTED = "#9A9AA6"
+OUTLINE = "#30303A"
+POSITIVE = "#22C55E"
+NEGATIVE = "#EF4444"
+WARNING = "#F59E0B"
+BLUE = "#2563EB"
+CYAN = "#06B6D4"
 
 APP_QSS = f"""
 QWidget {{ background: {BLACK}; color: {IVORY}; font-family: Inter, 'Noto Sans', 'Segoe UI', sans-serif; font-size: 13px; }}
@@ -36,13 +36,13 @@ QLabel#DeltaNegative {{ color: {NEGATIVE}; font-size: 12px; font-weight: 600; }}
 QLabel#SectionTitle {{ color: {IVORY}; font-size: 18px; font-weight: 700; }}
 QLabel#PageTitle {{ color: {IVORY}; font-size: 28px; font-weight: 750; }}
 QLabel#PageSubtitle {{ color: {MUTED}; font-size: 13px; }}
-QPushButton#Primary {{ background: {VIOLET}; color: #17121F; border: 0; border-radius: 10px; padding: 10px 15px; font-weight: 700; }}
-QPushButton#Primary:hover {{ background: #CAB3FF; }}
+QPushButton#Primary {{ background: {VIOLET}; color: #FFFFFF; border: 0; border-radius: 10px; padding: 10px 15px; font-weight: 700; }}
+QPushButton#Primary:hover {{ background: #7C3AED; }}
 QPushButton#Secondary {{ background: {CHARCOAL}; color: {IVORY}; border: 1px solid {OUTLINE}; border-radius: 10px; padding: 9px 14px; font-weight: 650; }}
 QPushButton#Secondary:hover {{ background: {CARD_HOVER}; }}
-QPushButton#Danger {{ background: #3A1116; color: {NEGATIVE}; border: 1px solid #6A252D; border-radius: 10px; padding: 9px 14px; font-weight: 750; }}
-QPushButton#Danger:hover {{ background: #551820; border-color: {NEGATIVE}; color: #FFD9DE; }}
-QPushButton#Danger:pressed {{ background: #6A1B25; }}
+QPushButton#Danger {{ background: #3B0B0B; color: {NEGATIVE}; border: 1px solid #7F1D1D; border-radius: 10px; padding: 9px 14px; font-weight: 750; }}
+QPushButton#Danger:hover {{ background: #5F1212; border-color: {NEGATIVE}; color: #FEE2E2; }}
+QPushButton#Danger:pressed {{ background: #7F1D1D; }}
 QLineEdit, QComboBox {{ background: {CHARCOAL}; border: 1px solid {OUTLINE}; border-radius: 10px; padding: 9px 11px; color: {IVORY}; }}
 QLineEdit:focus, QComboBox:focus {{ border-color: {VIOLET}; }}
 QTableWidget {{ background: {CARD}; alternate-background-color: {CHARCOAL}; border: 1px solid {OUTLINE}; border-radius: 12px; gridline-color: transparent; selection-background-color: {DEEP_VIOLET}; selection-color: {IVORY}; }}
