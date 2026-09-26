@@ -35,11 +35,12 @@ class ChartBase(QWidget):
 
 
 class LineChart(ChartBase):
-    def __init__(self, points, parent=None, *, show_points=True, hover_tooltip=False):
+    def __init__(self, points, parent=None, *, show_points=True, hover_tooltip=False, show_trend=False):
         super().__init__(parent)
         self.points = list(points)
         self.show_points = show_points
         self.hover_tooltip = hover_tooltip
+        self.show_trend = show_trend
         self._painted_points = []
         self._graph_rect = QRectF()
         self.setMouseTracking(bool(hover_tooltip))
@@ -47,6 +48,21 @@ class LineChart(ChartBase):
     def set_points(self, points):
         self.points = list(points)
         self.update()
+
+    @staticmethod
+    def _trend_fit(points):
+        if len(points) < 2:
+            return None
+        values=[float(value) for _,value in points]
+        count=len(values)
+        x_mean=(count-1)/2.0
+        y_mean=sum(values)/count
+        denominator=sum((index-x_mean)**2 for index in range(count))
+        if denominator <= 0:
+            return None
+        slope=sum((index-x_mean)*(value-y_mean) for index,value in enumerate(values))/denominator
+        intercept=y_mean-slope*x_mean
+        return intercept, intercept+slope*(count-1), slope
 
     @staticmethod
     def _display_label(label):
@@ -65,7 +81,11 @@ class LineChart(ChartBase):
         painter.setRenderHint(QPainter.Antialiasing)
         rect = self.rect().adjusted(16, 18, -16, -26)
         values = [value for _, value in self.points]
-        low, high = min(values), max(values)
+        trend=self._trend_fit(self.points) if self.show_trend else None
+        scale_values=list(values)
+        if trend is not None:
+            scale_values.extend((trend[0],trend[1]))
+        low, high = min(scale_values), max(scale_values)
         pad = max((high - low) * .18, abs(high) * .02, 1)
         low -= pad
         high += pad
@@ -109,6 +129,14 @@ class LineChart(ChartBase):
                 path.lineTo(point)
             painter.setPen(QPen(QColor(theme.VIOLET), 2.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             painter.drawPath(path)
+
+            if trend is not None:
+                trend_start,trend_end,slope=trend
+                start_y=graph.bottom()-(trend_start-low)/(high-low)*graph.height()
+                end_y=graph.bottom()-(trend_end-low)/(high-low)*graph.height()
+                trend_color=theme.POSITIVE if slope >= 0 else theme.NEGATIVE
+                painter.setPen(QPen(QColor(trend_color), 2.0, Qt.DashLine, Qt.RoundCap, Qt.RoundJoin))
+                painter.drawLine(QPointF(graph.left(),start_y),QPointF(graph.right(),end_y))
 
         if self.show_points:
             painter.setBrush(QColor(theme.VIOLET))
