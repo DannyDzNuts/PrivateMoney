@@ -506,7 +506,8 @@ class RecurringPage(QWidget):
         ("Age: oldest","age_desc"),
         ("Age: newest","age_asc"),
         ("Total spent: highest","total_desc"),
-        ("Frequency: most often","frequency_desc"),
+        ("Frequency: most often","frequency_asc"),
+        ("Occurrences: most","occurrences_desc"),
     )
 
     def __init__(self, state, parent=None):
@@ -529,7 +530,7 @@ class RecurringPage(QWidget):
         self.table.clearSpans()
         rows=self.state.recurring_details()
         key=self.sort.currentData() if hasattr(self,"sort") else "next_asc"
-        reverse=key in {"next_desc","price_desc","age_desc","total_desc","frequency_desc"}
+        reverse=key in {"next_desc","price_desc","age_desc","total_desc","occurrences_desc"}
         accessors={
             "next_asc":lambda x:x["charge"].next_date,
             "next_desc":lambda x:x["charge"].next_date,
@@ -540,7 +541,8 @@ class RecurringPage(QWidget):
             "age_desc":lambda x:x["age_days"],
             "age_asc":lambda x:x["age_days"],
             "total_desc":lambda x:x["total_spent"],
-            "frequency_desc":lambda x:x["occurrences"],
+            "frequency_asc":lambda x:x["frequency_days"],
+            "occurrences_desc":lambda x:x["occurrences"],
         }
         if key=="newest":
             reverse=True
@@ -624,19 +626,14 @@ class CategoryTagFilter(QWidget):
         self.scroller.setWidget(self.content)
         shell.addWidget(self.scroller,1)
 
-        self.drop=QToolButton()
-        self.drop.setText("▾")
-        self.drop.setFixedWidth(34)
+        self.drop=QComboBox()
+        self.drop.setFixedWidth(38)
+        self.drop.setInsertPolicy(QComboBox.NoInsert)
         self.drop.setStyleSheet(
-            f"QToolButton {{ background:{theme.CHARCOAL}; border:1px solid {theme.OUTLINE}; border-left:0; border-radius:0 10px 10px 0; }}"
-            f"QToolButton:hover {{ background:{theme.CARD_HOVER}; }}"
+            f"QComboBox {{ background:{theme.CHARCOAL}; border:1px solid {theme.OUTLINE}; border-left:0; border-radius:0 10px 10px 0; padding-left:2px; }}"
         )
-        self.drop.clicked.connect(self._show_menu)
+        self.drop.activated.connect(self._picked)
         shell.addWidget(self.drop)
-
-        self.menu=QComboBox(self)
-        self.menu.hide()
-        self.menu.activated.connect(self._picked)
 
     def eventFilter(self, obj, event):
         if obj is self.scroller.viewport() and event.type()==QEvent.Wheel:
@@ -667,28 +664,21 @@ class CategoryTagFilter(QWidget):
 
     def _populate_menu(self, query=""):
         query=query.strip().casefold()
-        self.menu.blockSignals(True)
-        self.menu.clear()
+        self.drop.blockSignals(True)
+        self.drop.clear()
         for option in self._options:
             if option in self._selected:
                 continue
             if query and query not in option.casefold():
                 continue
-            self.menu.addItem(option)
-        self.menu.blockSignals(False)
+            self.drop.addItem(option)
+        self.drop.blockSignals(False)
 
     def _filter_options(self, text):
         self._populate_menu(text)
 
-    def _show_menu(self):
-        self._populate_menu(self.input.text())
-        if self.menu.count()==0:
-            return
-        self.menu.setGeometry(self.drop.x(),self.drop.y(),self.drop.width(),self.drop.height())
-        self.menu.showPopup()
-
     def _picked(self, index):
-        value=self.menu.itemText(index).strip()
+        value=self.drop.itemText(index).strip()
         if value and value not in self._selected:
             self._selected.append(value)
             self.input.clear()
