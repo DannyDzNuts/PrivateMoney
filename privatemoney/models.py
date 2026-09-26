@@ -12,6 +12,7 @@ class Account:
     current_balance: float
     available_balance: float | None = None
     mask: str | None = None
+    nickname: str | None = None
 
 
 @dataclass(slots=True)
