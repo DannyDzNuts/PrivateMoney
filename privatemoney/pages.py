@@ -682,7 +682,7 @@ class ReportsPage(QWidget):
         income=sum(t.amount for t in rows if t.amount>0)
         net=sum(t.amount for t in rows)
         self.category_summary.setText(
-            f"{len(rows)} transactions · spending {money(-spending)} · income {money(income)} · net {money(net)}"
+            f"{len(rows)} transactions · spending {money(spending)} · income {money(income)} · net {money(net)}"
             if rows else "No matching transactions"
         )
 
