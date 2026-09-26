@@ -49,7 +49,7 @@ class DashboardPage(QScrollArea):
         grid.addWidget(card_with_title("Net worth", self.net_chart, "Recent trend"),0,0,1,2)
         grid.addWidget(card_with_title("Spending mix", self.spend_chart, "Latest month"),0,2)
         grid.addWidget(card_with_title("Cash flow", self.cashflow_chart, "Income vs. outflow"),1,0,1,2)
-        budgets=QWidget(); bl=QVBoxLayout(budgets); bl.setContentsMargins(0,0,0,0); bl.setSpacing(2)
+        budgets=QWidget(); budgets.setStyleSheet("background:transparent;"); bl=QVBoxLayout(budgets); bl.setContentsMargins(0,0,0,0); bl.setSpacing(2)
         for b in state.budgets(): bl.addWidget(BudgetRow(b.category,b.spent,b.limit))
         bl.addStretch(); grid.addWidget(card_with_title("Budgets",budgets,"Current plan"),1,2)
         grid.setColumnStretch(0,2); grid.setColumnStretch(1,2); grid.setColumnStretch(2,2)
@@ -177,14 +177,16 @@ class SettingsPage(QScrollArea):
 
         pc=Card(); p=QVBoxLayout(pc); p.setContentsMargins(20,18,20,18); p.setSpacing(9)
         h=QLabel("Plaid bank connection"); h.setObjectName("SectionTitle"); p.addWidget(h)
+        steps=QLabel("1. Set Plaid API credentials  →  2. Connect bank in Plaid Link  →  3. Refresh & sync")
+        steps.setWordWrap(True); steps.setStyleSheet(f"color:{theme.MUTED}; background:transparent;"); p.addWidget(steps)
         self.plaid_status=QLabel(); self.plaid_status.setWordWrap(True); self.plaid_status.setStyleSheet(f"color:{theme.MUTED}"); p.addWidget(self.plaid_status)
         envrow=QHBoxLayout(); envlbl=QLabel("Environment"); self.env=QComboBox(); self.env.addItems(["Sandbox","Production"]); envrow.addWidget(envlbl); envrow.addStretch(); envrow.addWidget(self.env); p.addLayout(envrow)
         self.client_id=QLineEdit(); self.client_id.setPlaceholderText("Plaid client_id")
         self.secret=QLineEdit(); self.secret.setPlaceholderText("Plaid secret"); self.secret.setEchoMode(QLineEdit.Password)
         p.addWidget(self.client_id); p.addWidget(self.secret)
-        buttons=QHBoxLayout(); configure=QPushButton("Configure for this session"); configure.setObjectName("Secondary"); configure.clicked.connect(self._configure_plaid)
+        buttons=QHBoxLayout(); configure=QPushButton("Set API credentials"); configure.setObjectName("Secondary"); configure.clicked.connect(self._configure_plaid)
         self.connect_btn=QPushButton("Connect bank"); self.connect_btn.setObjectName("Primary"); self.connect_btn.clicked.connect(self._connect_bank)
-        self.sync_btn=QPushButton("Sync now"); self.sync_btn.setObjectName("Secondary"); self.sync_btn.clicked.connect(self._sync_now)
+        self.sync_btn=QPushButton("Refresh & sync"); self.sync_btn.setObjectName("Secondary"); self.sync_btn.setToolTip("Requests a fresh Plaid transaction update when Transactions Refresh is available, then syncs available changes."); self.sync_btn.clicked.connect(self._sync_now)
         buttons.addWidget(configure); buttons.addWidget(self.connect_btn); buttons.addWidget(self.sync_btn); buttons.addStretch(); p.addLayout(buttons)
         privacy=QLabel("Demo safety: Plaid client secret, Item access token, and sync cursor stay only in process memory and are cleared when PrivateMoney exits. Bank credentials are entered only inside Plaid Link.")
         privacy.setWordWrap(True); privacy.setStyleSheet(f"color:{theme.MUTED}"); p.addWidget(privacy); l.addWidget(pc)
@@ -213,10 +215,15 @@ class SettingsPage(QScrollArea):
             QMessageBox.warning(self,"Plaid connection",str(exc))
 
     def _sync_now(self):
+        with self.plaid._lock:
+            self.plaid._status = "Refreshing bank data…"
+        self.refresh()
         def worker():
-            try: self.plaid.sync()
+            try:
+                self.plaid.refresh_and_sync()
             except Exception as exc:
-                with self.plaid._lock: self.plaid._status=f"Sync failed: {exc}"
+                with self.plaid._lock:
+                    self.plaid._status=f"Sync failed: {exc}"
         threading.Thread(target=worker,daemon=True,name="private-money-plaid-sync").start()
 
     def refresh(self):

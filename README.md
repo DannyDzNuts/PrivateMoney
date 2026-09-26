@@ -18,6 +18,15 @@ Real financial data is not persisted yet. The encrypted SQLCipher vault is the n
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.3
+
+- Scrollable spending-mix legend so long category lists stay inside their card
+- Transparent budget-row/card-body treatment for consistent Midnight Violet cards
+- Clear three-stage Plaid setup flow: API credentials, Link, then refresh/sync
+- On-demand `/transactions/refresh` before `/transactions/sync` when the optional Plaid product is available
+- Graceful fallback to Plaid's latest cached transaction data when on-demand refresh is unavailable
+- More explicit Plaid connection and sync status messaging
+
 ## Added in 0.2
 
 - Versioned read-only Dashboard API on `127.0.0.1` only

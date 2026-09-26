@@ -43,6 +43,8 @@ class MetricCard(Card):
 class BudgetRow(QFrame):
     def __init__(self, category: str, spent: float, limit: float, parent=None):
         super().__init__(parent)
+        self.setObjectName("BudgetRow")
+        self.setStyleSheet("QFrame#BudgetRow { background: transparent; border: 0; }")
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 7, 0, 7); outer.setSpacing(7)
         row = QHBoxLayout(); row.setSpacing(8)
         name = QLabel(category); name.setStyleSheet("font-weight:650")

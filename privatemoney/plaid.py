@@ -71,7 +71,7 @@ class PlaidBridge:
             self._item_id = ""
             self._cursor = None
             self._transactions.clear()
-            self._status = f"Configured for {environment} · session memory only"
+            self._status = f"API credentials set for {environment} · next: Connect bank"
 
     def create_link_session(self) -> str:
         if not self.configured:
@@ -119,6 +119,38 @@ class PlaidBridge:
         self.sync()
         return {"ok": True, "item_connected": True, "source": "plaid"}
 
+    def refresh_and_sync(self) -> dict:
+        """Request fresh Plaid data when the optional refresh product is available.
+
+        If Transactions Refresh is not enabled for the Plaid account or Item,
+        fall back to syncing Plaid's latest cached transaction state.
+        """
+        with self._lock:
+            access_token = self._access_token
+        if not access_token:
+            raise PlaidError("No Plaid Item is connected in this session.")
+
+        try:
+            with self._lock:
+                self._status = "Requesting an on-demand bank refresh from Plaid…"
+            self._request("/transactions/refresh", {"access_token": access_token}, timeout=75)
+            with self._lock:
+                self._status = "Bank refresh completed · syncing transaction changes…"
+        except PlaidError as exc:
+            text = str(exc)
+            fallback_codes = (
+                "PRODUCT_NOT_ENABLED",
+                "PRODUCTS_NOT_SUPPORTED",
+                "PRODUCT_NOT_SUPPORTED",
+                "NO_AUTH_ACCOUNTS",
+            )
+            if not any(code in text for code in fallback_codes):
+                raise
+            with self._lock:
+                self._status = "On-demand refresh unavailable · syncing Plaid's latest available data…"
+
+        return self.sync()
+
     def sync(self) -> dict:
         with self._lock:
             access_token = self._access_token
@@ -160,7 +192,7 @@ class PlaidBridge:
             self._status = f"Connected · {len(accounts)} accounts · {len(mapped_transactions)} transactions"
         return {"accounts": len(accounts), "transactions": len(mapped_transactions)}
 
-    def _request(self, path: str, payload: dict) -> dict:
+    def _request(self, path: str, payload: dict, timeout: int = 45) -> dict:
         with self._lock:
             client_id = self._client_id
             secret = self._secret
@@ -180,7 +212,7 @@ class PlaidBridge:
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=45) as response:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             try:
