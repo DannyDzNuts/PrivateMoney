@@ -94,6 +94,27 @@ class FinanceFeatureTests(unittest.TestCase):
         self.assertAlmostEqual(rows[0].amount,14.99,places=2)
         self.assertEqual(state.summary()["recurring_count"],1)
 
+    def test_recurring_details_include_history_metrics(self):
+        state=FinanceState()
+        transactions=[
+            Transaction(date(2026,6,1),"STREAMCO","Subscriptions","Checking",-10.0,False,"d1"),
+            Transaction(date(2026,7,1),"STREAMCO","Subscriptions","Checking",-10.0,False,"d2"),
+            Transaction(date(2026,8,1),"STREAMCO","Subscriptions","Checking",-10.0,False,"d3"),
+            Transaction(date(2026,9,1),"STREAMCO","Subscriptions","Checking",-10.0,False,"d4"),
+        ]
+        state.restore_snapshot({
+            "source":"local",
+            "accounts":[Account("a","Checking","checking","Bank",100.0,100.0,"1")],
+            "transactions":transactions,
+            "budgets":[],"recurring":[],"net_worth":[],"cashflow":[],
+        })
+        details=state.recurring_details()
+        self.assertEqual(len(details),1)
+        self.assertEqual(details[0]["first_seen"],date(2026,6,1))
+        self.assertEqual(details[0]["total_spent"],40.0)
+        self.assertEqual(details[0]["occurrences"],4)
+        self.assertEqual(details[0]["frequency_days"],30)
+
     def test_recurring_does_not_flag_irregular_spending(self):
         state=FinanceState()
         transactions=[
