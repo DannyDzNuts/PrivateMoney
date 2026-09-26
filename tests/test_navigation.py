@@ -28,9 +28,11 @@ class NavigationTests(unittest.TestCase):
         window=MainWindow()
         try:
             labels=[button.text() for button in window.nav_buttons]
-            self.assertEqual(len(labels),7)
+            self.assertEqual(len(labels),6)
             self.assertFalse(any("Net worth" in label for label in labels))
-            self.assertEqual(window.stack.count(),7)
+            self.assertFalse(any("Reports" in label for label in labels))
+            self.assertEqual(sum("Transactions" in label for label in labels),1)
+            self.assertEqual(window.stack.count(),6)
         finally:
             window.close()
 
