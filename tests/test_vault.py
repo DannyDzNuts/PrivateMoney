@@ -48,6 +48,7 @@ class VaultTests(unittest.TestCase):
                             1234.56,
                             1200.00,
                             "1234",
+                            "Daily",
                         )
                     ],
                     "transactions": [
@@ -110,6 +111,7 @@ class VaultTests(unittest.TestCase):
             self.assertTrue(vault.restore_runtime(restored_state, restored_plaid))
 
             self.assertEqual(restored_state.accounts()[0].name, "Checking")
+            self.assertEqual(restored_state.accounts()[0].nickname, "Daily")
             self.assertEqual(restored_state.transactions()[0].external_id, "tx-1")
             self.assertEqual(restored_state.budgets()[0].limit, 200.00)
 
