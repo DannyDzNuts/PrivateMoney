@@ -147,13 +147,13 @@ class AccountsPage(QWidget):
                 if offset in (4,5): item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
                 self.table.setItem(r,offset,item)
         header=self.table.horizontalHeader()
-        header.setSectionResizeMode(0,QHeaderView.Stretch)
+        header.setSectionResizeMode(0,QHeaderView.Interactive)
         header.setSectionResizeMode(1,QHeaderView.Stretch)
         header.setSectionResizeMode(2,QHeaderView.ResizeToContents)
         header.setSectionResizeMode(3,QHeaderView.Stretch)
         header.setSectionResizeMode(4,QHeaderView.ResizeToContents)
         header.setSectionResizeMode(5,QHeaderView.ResizeToContents)
-        self.table.setColumnWidth(0,240)
+        self.table.setColumnWidth(0,280)
 
 
 class StatementImportDialog(QDialog):
