@@ -18,6 +18,10 @@ QWidget {{ background: {BLACK}; color: {IVORY}; font-family: Inter, 'Noto Sans',
 QLabel {{ background: transparent; }}
 QMainWindow {{ background: {BLACK}; }}
 QFrame#Sidebar {{ background: {CHARCOAL}; border-right: 1px solid {OUTLINE}; }}
+QFrame#TopBar {{ background: {BLACK}; border-bottom: 1px solid {OUTLINE}; }}
+QPushButton#VaultToggle {{ background: {CHARCOAL}; color: {IVORY}; border: 1px solid {OUTLINE}; border-radius: 10px; font-size: 18px; padding: 0; }}
+QPushButton#VaultToggle:hover {{ background: {DEEP_VIOLET}; border-color: {VIOLET}; }}
+QDialog#PasswordDialog {{ background: {CARD}; }}
 QLabel#Brand {{ font-size: 20px; font-weight: 700; color: {IVORY}; }}
 QLabel#Eyebrow {{ color: {MUTED}; font-size: 11px; font-weight: 600; }}
 QPushButton#NavButton {{ text-align: left; padding: 11px 14px; border: 0; border-radius: 10px; background: transparent; color: {MUTED}; font-weight: 600; }}

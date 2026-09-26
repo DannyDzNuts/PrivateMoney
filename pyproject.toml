@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "private-money"
-version = "0.4.0"
+version = "0.4.1"
 description = "Local-first personal finance dashboard with a read-only local API and opt-in Plaid Link"
 requires-python = ">=3.11"
 dependencies = ["PySide6>=6.8", "sqlcipher3-binary>=0.6.0", "argon2-cffi>=25.1.0"]

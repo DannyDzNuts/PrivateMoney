@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QAbstractItemView, QComboBox, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
-    QInputDialog, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QTableWidget, QTableWidgetItem,
+    QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget
 )
 from .charts import CashFlowChart, DonutChart, LineChart
@@ -139,7 +139,7 @@ class NetWorthPage(QWidget):
         super().__init__(parent); self.state=state
         l=QVBoxLayout(self); l.setContentsMargins(28,24,28,28); l.setSpacing(16)
         l.addWidget(page_header("Net worth","Assets minus liabilities, tracked over time."))
-        self.chart=LineChart(state.net_worth()); l.addWidget(card_with_title("Net worth history",self.chart,"Historical snapshots will accumulate after encrypted persistence lands"),1)
+        self.chart=LineChart(state.net_worth()); l.addWidget(card_with_title("Net worth history",self.chart,"History will build over time"),1)
     def refresh(self): self.chart.set_points(self.state.net_worth())
 
 
@@ -156,23 +156,18 @@ class ReportsPage(QWidget):
 
 
 class SettingsPage(QScrollArea):
-    def __init__(self, state, api_server, plaid, api_token, vault, parent=None):
-        super().__init__(parent); self.state=state; self.api_server=api_server; self.plaid=plaid; self.api_token=api_token; self.vault=vault; self._vault_error=''
+    def __init__(self, state, api_server, plaid, api_token, vault, on_logout=None, parent=None):
+        super().__init__(parent); self.state=state; self.api_server=api_server; self.plaid=plaid; self.api_token=api_token; self.vault=vault; self.on_logout=on_logout; self._vault_error=''
         self.setWidgetResizable(True); self.setFrameShape(QFrame.NoFrame)
         host=QWidget(); self.setWidget(host); l=QVBoxLayout(host); l.setContentsMargins(28,24,28,28); l.setSpacing(16)
         l.addWidget(page_header("Settings","Private by default; external access must be explicitly configured."))
 
-        vc=Card(); vl=QVBoxLayout(vc); vl.setContentsMargins(20,18,20,18); vl.setSpacing(9)
-        vh=QLabel("Encrypted vault"); vh.setObjectName("SectionTitle"); vl.addWidget(vh)
-        self.vault_status=QLabel(); self.vault_status.setWordWrap(True); self.vault_status.setStyleSheet(f"color:{theme.MUTED}"); vl.addWidget(self.vault_status)
-        vault_buttons=QHBoxLayout()
-        self.vault_action=QPushButton(); self.vault_action.setObjectName("Primary"); self.vault_action.clicked.connect(self._vault_action)
-        self.vault_lock=QPushButton("Lock vault"); self.vault_lock.setObjectName("Secondary"); self.vault_lock.clicked.connect(self._lock_vault)
-        vault_buttons.addWidget(self.vault_action); vault_buttons.addWidget(self.vault_lock); vault_buttons.addStretch()
-        vl.addLayout(vault_buttons)
-        vault_note=QLabel("Financial data and persisted Plaid tokens are stored only in the SQLCipher vault. The vault key is derived locally with Argon2id; there is no plaintext database fallback.")
-        vault_note.setWordWrap(True); vault_note.setStyleSheet(f"color:{theme.MUTED}"); vl.addWidget(vault_note)
-        l.addWidget(vc)
+        access=Card(); alog=QVBoxLayout(access); alog.setContentsMargins(20,18,20,18); alog.setSpacing(9)
+        ah=QLabel("Access"); ah.setObjectName("SectionTitle"); alog.addWidget(ah)
+        self.access_status=QLabel(); self.access_status.setWordWrap(True); self.access_status.setStyleSheet(f"color:{theme.MUTED}"); alog.addWidget(self.access_status)
+        self.logout_btn=QPushButton("Log out"); self.logout_btn.setObjectName("Secondary"); self.logout_btn.clicked.connect(self._logout)
+        alog.addWidget(self.logout_btn,0,Qt.AlignLeft)
+        l.addWidget(access)
 
         api=Card(); a=QVBoxLayout(api); a.setContentsMargins(20,18,20,18); a.setSpacing(9)
         title=QLabel("Dashboard API"); title.setObjectName("SectionTitle"); a.addWidget(title)
@@ -212,62 +207,9 @@ class SettingsPage(QScrollArea):
         self._vault_error = message
         self.refresh()
 
-    def _vault_action(self):
-        try:
-            if self.vault.unlocked:
-                return
-
-            if self.vault.exists:
-                passphrase, ok = QInputDialog.getText(
-                    self,
-                    "Unlock encrypted vault",
-                    "Vault passphrase:",
-                    QLineEdit.Password,
-                )
-                if not ok:
-                    return
-                self.vault.unlock(passphrase)
-                self.vault.restore_runtime(self.state, self.plaid)
-                self._vault_error = ""
-            else:
-                passphrase, ok = QInputDialog.getText(
-                    self,
-                    "Create encrypted vault",
-                    "Choose a vault passphrase (10+ characters):",
-                    QLineEdit.Password,
-                )
-                if not ok:
-                    return
-                confirm, ok = QInputDialog.getText(
-                    self,
-                    "Confirm vault passphrase",
-                    "Enter the passphrase again:",
-                    QLineEdit.Password,
-                )
-                if not ok:
-                    return
-                if passphrase != confirm:
-                    raise RuntimeError("The passphrases do not match.")
-                self.vault.create(passphrase)
-                self.vault.save_runtime(self.state, self.plaid)
-                self._vault_error = ""
-            self.refresh()
-        except Exception as exc:
-            self._vault_error = str(exc)
-            QMessageBox.warning(self, "Encrypted vault", str(exc))
-            self.refresh()
-
-    def _lock_vault(self):
-        if not self.vault.unlocked:
-            return
-        try:
-            self.vault.save_runtime(self.state, self.plaid)
-        except Exception as exc:
-            QMessageBox.warning(self, "Encrypted vault", f"Could not save before locking: {exc}")
-            return
-        self.vault.lock()
-        self.plaid.clear_sensitive_session()
-        self.refresh()
+    def _logout(self):
+        if callable(self.on_logout):
+            self.on_logout()
 
     def _configure_plaid(self):
         try:
@@ -306,26 +248,16 @@ class SettingsPage(QScrollArea):
         self.env.setCurrentText(self.plaid.environment)
 
         if self.vault.unlocked:
-            vault_text = "Unlocked · SQLCipher encryption active · changes are saved locally."
-            self.vault_action.setText("Vault unlocked")
-            self.vault_action.setEnabled(False)
-            self.vault_lock.setEnabled(True)
-            self.plaid_privacy.setText("Plaid developer credentials, Item access token, and sync cursor are encrypted at rest in the local vault. Bank credentials are still entered only inside Plaid Link.")
-        elif self.vault.exists:
-            vault_text = "Locked · unlock the vault to load or persist financial data."
-            self.vault_action.setText("Unlock vault")
-            self.vault_action.setEnabled(True)
-            self.vault_lock.setEnabled(False)
-            self.plaid_privacy.setText("The vault is locked. Plaid credentials and tokens used during this session will not persist until the vault is unlocked.")
+            access_text = "PrivateMoney is unlocked on this computer."
+            self.logout_btn.setEnabled(True)
+            self.plaid_privacy.setText("Your Plaid connection can be saved securely on this computer. Bank credentials are still entered only inside Plaid Link.")
         else:
-            vault_text = "Not created · current activity is session-only."
-            self.vault_action.setText("Create encrypted vault")
-            self.vault_action.setEnabled(True)
-            self.vault_lock.setEnabled(False)
-            self.plaid_privacy.setText("Create the encrypted vault to persist Plaid developer credentials, Item access tokens, sync cursors, accounts, and transactions securely.")
+            access_text = "PrivateMoney is locked."
+            self.logout_btn.setEnabled(False)
+            self.plaid_privacy.setText("Unlock PrivateMoney to save your Plaid connection and financial data.")
         if self._vault_error:
-            vault_text += f"  Last error: {self._vault_error}"
-        self.vault_status.setText(vault_text)
+            access_text += f"  Last error: {self._vault_error}"
+        self.access_status.setText(access_text)
 
 
 def style_table(table):

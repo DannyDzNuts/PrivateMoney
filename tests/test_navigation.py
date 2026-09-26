@@ -2,6 +2,7 @@ import os
 import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ["PRIVATE_MONEY_TESTING"] = "1"
 
 from PySide6.QtWidgets import QApplication
 

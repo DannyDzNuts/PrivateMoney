@@ -18,6 +18,14 @@ PrivateMoney now includes an encrypted SQLCipher vault for local persistence. Th
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.4.1
+
+- First-run **Create password** prompt when no local vault exists
+- Persistent lock/unlock button at the top-right of every screen
+- Locking saves current state, closes the vault, clears Plaid secrets, and removes financial data from the visible session
+- Unlocking prompts for the password and restores saved state
+- Settings now uses a simple **Log out** action instead of developer-facing vault controls
+
 ## Added in 0.4
 
 - Mouse-wheel navigation over the left navigation pane switches pages one step at a time

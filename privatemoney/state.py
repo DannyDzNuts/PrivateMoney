@@ -31,6 +31,18 @@ class FinanceState:
         with self._lock:
             return self._source
 
+    def clear_runtime(self):
+        with self._lock:
+            self._source = "local"
+            self._accounts = []
+            self._transactions = []
+            self._budgets = []
+            self._recurring = []
+            self._net_worth = []
+            self._spending = []
+            self._cashflow = []
+            self._version += 1
+
     def accounts(self):
         with self._lock:
             return list(self._accounts)

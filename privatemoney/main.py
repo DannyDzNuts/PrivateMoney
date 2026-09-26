@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import secrets
 import sys
 
@@ -7,10 +8,13 @@ from PySide6.QtCore import QEvent, QTimer, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QStackedWidget,
     QVBoxLayout,
@@ -32,6 +36,97 @@ from .plaid import PlaidBridge
 from .state import FinanceState
 from .storage import VaultManager
 from .theme import APP_QSS, MUTED
+
+
+class PasswordDialog(QDialog):
+    """Small product-facing password dialog using PrivateMoney's normal theme."""
+
+    def __init__(self, mode: str, parent=None):
+        super().__init__(parent)
+        self.mode = mode
+        self.setModal(True)
+        self.setObjectName("PasswordDialog")
+        self.setMinimumWidth(420)
+        self.setWindowTitle("Create password" if mode == "create" else "Enter password")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 22)
+        layout.setSpacing(12)
+
+        title = QLabel("Create password" if mode == "create" else "Enter password")
+        title.setObjectName("SectionTitle")
+        layout.addWidget(title)
+
+        if mode == "create":
+            detail = QLabel(
+                "Choose a password for PrivateMoney on this computer. "
+                "Use at least 10 characters."
+            )
+        else:
+            detail = QLabel("Enter your PrivateMoney password to unlock your data.")
+        detail.setWordWrap(True)
+        detail.setStyleSheet(f"color:{MUTED};")
+        layout.addWidget(detail)
+
+        self.password = QLineEdit()
+        self.password.setEchoMode(QLineEdit.Password)
+        self.password.setPlaceholderText("Password")
+        self.password.returnPressed.connect(self._submit)
+        layout.addWidget(self.password)
+
+        self.confirm = None
+        if mode == "create":
+            self.confirm = QLineEdit()
+            self.confirm.setEchoMode(QLineEdit.Password)
+            self.confirm.setPlaceholderText("Confirm password")
+            self.confirm.returnPressed.connect(self._submit)
+            layout.addWidget(self.confirm)
+
+        self.error = QLabel()
+        self.error.setWordWrap(True)
+        self.error.setStyleSheet("color:#FF8E9A;")
+        self.error.hide()
+        layout.addWidget(self.error)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+
+        cancel = QPushButton("Exit" if mode == "create" else "Cancel")
+        cancel.setObjectName("Secondary")
+        cancel.clicked.connect(self.reject)
+        buttons.addWidget(cancel)
+
+        submit = QPushButton("Create password" if mode == "create" else "Unlock")
+        submit.setObjectName("Primary")
+        submit.clicked.connect(self._submit)
+        buttons.addWidget(submit)
+        layout.addLayout(buttons)
+
+        QTimer.singleShot(0, self.password.setFocus)
+
+    def _submit(self):
+        value = self.password.text()
+        if self.mode == "create":
+            if len(value) < 10:
+                self._show_error("Use at least 10 characters.")
+                return
+            if self.confirm is None or value != self.confirm.text():
+                self._show_error("The passwords do not match.")
+                return
+        elif not value:
+            self._show_error("Enter your password.")
+            return
+        self.accept()
+
+    def _show_error(self, message: str):
+        self.error.setText(message)
+        self.error.show()
+        self.password.selectAll()
+        self.password.setFocus()
+
+    @property
+    def value(self) -> str:
+        return self.password.text()
 
 
 class NavigationPane(QFrame):
@@ -56,7 +151,6 @@ class NavigationPane(QFrame):
 
         self._wheel_accumulator += delta
         if abs(self._wheel_accumulator) >= threshold:
-            # Wheel up = previous page; wheel down = next page.
             self._on_step(-1 if self._wheel_accumulator > 0 else 1)
             self._wheel_accumulator = 0
 
@@ -95,6 +189,12 @@ class MainWindow(QMainWindow):
 
         outer.addWidget(self._sidebar())
 
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        content_layout.addWidget(self._topbar())
+
         self.stack = QStackedWidget()
         self.pages = [
             DashboardPage(self.state),
@@ -110,11 +210,13 @@ class MainWindow(QMainWindow):
                 self.plaid,
                 self.api_token,
                 self.vault,
+                on_logout=self.lock_vault,
             ),
         ]
         for page in self.pages:
             self.stack.addWidget(page)
-        outer.addWidget(self.stack, 1)
+        content_layout.addWidget(self.stack, 1)
+        outer.addWidget(content, 1)
 
         self._set_page(0)
         self._last_version = -1
@@ -122,6 +224,24 @@ class MainWindow(QMainWindow):
         self._timer.timeout.connect(self._refresh)
         self._timer.start(1250)
         self._refresh()
+
+        if not self.vault.exists and os.environ.get("PRIVATE_MONEY_TESTING") != "1":
+            QTimer.singleShot(0, self._prompt_create_password)
+
+    def _topbar(self):
+        bar = QFrame()
+        bar.setObjectName("TopBar")
+        bar.setFixedHeight(54)
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(18, 8, 18, 8)
+        layout.addStretch()
+
+        self.lock_button = QPushButton()
+        self.lock_button.setObjectName("VaultToggle")
+        self.lock_button.setFixedSize(38, 38)
+        self.lock_button.clicked.connect(self.toggle_vault)
+        layout.addWidget(self.lock_button)
+        return bar
 
     def _sidebar(self):
         bar = NavigationPane(self._move_page)
@@ -188,6 +308,68 @@ class MainWindow(QMainWindow):
             return
         self._set_page(self.stack.currentIndex() + (1 if direction > 0 else -1))
 
+    def _prompt_create_password(self):
+        if self.vault.exists:
+            return
+        dialog = PasswordDialog("create", self)
+        if dialog.exec() != QDialog.Accepted:
+            self.close()
+            return
+        try:
+            self.vault.create(dialog.value)
+            self.vault.save_runtime(self.state, self.plaid)
+        except Exception as exc:
+            QMessageBox.warning(self, "Create password", str(exc))
+            QTimer.singleShot(0, self._prompt_create_password)
+            return
+        self._refresh()
+
+    def _prompt_unlock(self):
+        if self.vault.unlocked:
+            return True
+        if not self.vault.exists:
+            self._prompt_create_password()
+            return self.vault.unlocked
+
+        dialog = PasswordDialog("unlock", self)
+        if dialog.exec() != QDialog.Accepted:
+            return False
+
+        try:
+            self.vault.unlock(dialog.value)
+            self.vault.restore_runtime(self.state, self.plaid)
+            self._last_version = -1
+            self._refresh()
+            return True
+        except Exception:
+            QMessageBox.warning(self, "Enter password", "That password did not work.")
+            return False
+
+    def toggle_vault(self):
+        if self.vault.unlocked:
+            self.lock_vault()
+        else:
+            self._prompt_unlock()
+
+    def lock_vault(self):
+        if not self.vault.unlocked:
+            return
+        try:
+            self.vault.save_runtime(self.state, self.plaid)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "Log out",
+                f"PrivateMoney could not save your latest changes: {exc}",
+            )
+            return
+
+        self.vault.lock()
+        self.plaid.clear_sensitive_session()
+        self.state.clear_runtime()
+        self._last_version = -1
+        self._refresh()
+
     def _refresh(self):
         version = self.state.version
         if version != self._last_version:
@@ -203,19 +385,25 @@ class MainWindow(QMainWindow):
                     settings.set_vault_error(str(exc))
             self._last_version = version
 
-        # Plaid and vault status can change independently of finance-state updates.
         settings = self.pages[-1]
         settings.refresh()
 
         if self.vault.unlocked and self.plaid.connected:
-            mode = "PLAID CONNECTED · ENCRYPTED VAULT"
+            mode = "PLAID CONNECTED"
         elif self.vault.unlocked:
-            mode = "LOCAL VAULT · ENCRYPTED"
-        elif self.plaid.connected:
-            mode = "PLAID CONNECTED · SESSION ONLY"
+            mode = "SIGNED IN"
         else:
-            mode = "LOCAL MODE · SESSION ONLY"
+            mode = "LOCKED"
         self.mode_label.setText(mode)
+
+        unlocked = self.vault.unlocked
+        self.lock_button.setText("🔓" if unlocked else "🔒")
+        self.lock_button.setToolTip(
+            "Lock PrivateMoney" if unlocked else "Unlock PrivateMoney"
+        )
+        self.lock_button.setAccessibleName(
+            "Lock PrivateMoney" if unlocked else "Unlock PrivateMoney"
+        )
 
     def closeEvent(self, event):
         if self.vault.unlocked:
