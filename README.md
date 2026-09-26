@@ -18,6 +18,19 @@ PrivateMoney now includes an encrypted SQLCipher vault for local persistence. Th
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.13
+
+- Net-worth trajectory badge now shows only the percentage change because the selected range is already visible beside it
+- Overview metric cards are taller so large primary values are not clipped
+- Account nickname rows/editors are taller so input text is fully visible
+- Recurring card titles are now simply **Spending** and **Income**
+- Recurring Income no longer includes a Category column
+- Recurring table cells, including monetary values, are centered consistently
+- Bulk categorization moved to a compact header button and popup dialog, freeing vertical room for the transaction list
+- Transactions pie and cash-flow charts are shorter
+- Pie layout now reserves measured left/right label gutters so long external slice labels stay inside the chart
+- Sidebar tab glyphs are rendered as larger icons independently of label text
+
 ## Added in 0.12
 
 - Renamed **Budgets** to **Budgets & Goals**

@@ -21,13 +21,13 @@ class MetricCard(Card):
         layout.setContentsMargins(18, 16, 18, 16)
         layout.setSpacing(7)
         t = QLabel(title); t.setObjectName("CardTitle")
-        self.value_label = QLabel(value); self.value_label.setObjectName("BigNumber")
+        self.value_label = QLabel(value); self.value_label.setObjectName("BigNumber"); self.value_label.setMinimumHeight(36)
         layout.addWidget(t); layout.addWidget(self.value_label)
         self.delta_label = QLabel(delta)
         layout.addWidget(self.delta_label)
         self.set_delta(delta, positive)
         layout.addStretch(1)
-        self.setMinimumHeight(96)
+        self.setMinimumHeight(116)
 
     def set_value(self, value: str):
         self.value_label.setText(value)

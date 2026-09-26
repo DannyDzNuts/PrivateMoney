@@ -5,8 +5,8 @@ import secrets
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QRectF, QTimer, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QEvent, QRectF, QSize, QTimer, Qt
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -40,6 +40,21 @@ from .theme import APP_QSS, MUTED
 
 def app_icon() -> QIcon:
     return QIcon(str(Path(__file__).resolve().parent / "assets" / "privatemoney.svg"))
+
+
+def nav_icon(glyph: str) -> QIcon:
+    pix=QPixmap(30,30)
+    pix.fill(Qt.transparent)
+    painter=QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+    font=QFont()
+    font.setPointSize(18)
+    font.setBold(True)
+    painter.setFont(font)
+    painter.setPen(QColor(MUTED))
+    painter.drawText(pix.rect(),Qt.AlignCenter,glyph)
+    painter.end()
+    return QIcon(pix)
 
 
 class PasswordDialog(QDialog):
@@ -393,7 +408,9 @@ class MainWindow(QMainWindow):
         group.setExclusive(True)
 
         for idx, (name, icon) in enumerate(items):
-            button = QPushButton(f"{icon}   {name}")
+            button = QPushButton(name)
+            button.setIcon(nav_icon(icon))
+            button.setIconSize(QSize(26,26))
             button.setObjectName("NavButton")
             button.setCheckable(True)
             button.clicked.connect(lambda checked=False, i=idx: self._set_page(i))

@@ -4,7 +4,7 @@ import math
 from datetime import date
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QToolTip,
     QVBoxLayout, QWidget,
@@ -204,8 +204,8 @@ class _PieCanvas(ChartBase):
     def __init__(self, segments, parent=None):
         super().__init__(parent)
         self.segments = list(segments)
-        self.setMinimumWidth(420)
-        self.setMinimumHeight(300)
+        self.setMinimumWidth(380)
+        self.setMinimumHeight(210)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
     def set_segments(self, segments):
@@ -243,9 +243,15 @@ class _PieCanvas(ChartBase):
             return
 
         total = sum(max(0.0, float(value)) for _, value in self.segments) or 1.0
+        label_font = QFont(self.font())
+        label_font.setPointSize(9)
+        label_font.setBold(True)
+        metrics = QFontMetrics(label_font)
+        max_label = max((metrics.horizontalAdvance(str(label)) for label,_ in self.segments),default=70)
+        gutter = max(105.0,min(185.0,float(max_label + 38)))
         side = max(
-            110.0,
-            min(float(self.height() - 42), float(self.width()) * .48, 220.0),
+            100.0,
+            min(float(self.height() - 66), float(self.width()) - 2.0 * gutter - 20.0, 180.0),
         )
         center_x = self.width() / 2.0
         center_y = self.height() / 2.0
@@ -317,9 +323,6 @@ class _PieCanvas(ChartBase):
         self._distribute_labels(right, 14.0, self.height() - 14.0)
 
         leader_pen = QPen(QColor(theme.MUTED), 1.2)
-        label_font = QFont(self.font())
-        label_font.setPointSize(9)
-        label_font.setBold(True)
         painter.setFont(label_font)
         painter.setPen(leader_pen)
 
@@ -331,14 +334,14 @@ class _PieCanvas(ChartBase):
             )
 
             if row["right"]:
-                line_end = min(self.width() - 86.0, max(row["elbow_x"] + 10.0, center_x + radius + 34.0))
+                line_end = min(self.width() - 44.0, center_x + radius + 24.0)
                 painter.drawLine(QPointF(row["elbow_x"], y), QPointF(line_end, y))
-                text_rect = QRectF(line_end + 6.0, y - 10.0, self.width() - line_end - 12.0, 20.0)
+                text_rect = QRectF(line_end + 6.0, y - 10.0, self.width() - line_end - 14.0, 20.0)
                 flags = Qt.AlignLeft | Qt.AlignVCenter
             else:
-                line_end = max(86.0, min(row["elbow_x"] - 10.0, center_x - radius - 34.0))
+                line_end = max(44.0, center_x - radius - 24.0)
                 painter.drawLine(QPointF(row["elbow_x"], y), QPointF(line_end, y))
-                text_rect = QRectF(6.0, y - 10.0, line_end - 12.0, 20.0)
+                text_rect = QRectF(8.0, y - 10.0, line_end - 14.0, 20.0)
                 flags = Qt.AlignRight | Qt.AlignVCenter
 
             painter.setPen(QColor(theme.IVORY))
@@ -352,7 +355,7 @@ class DonutChart(QWidget):
     def __init__(self, segments, parent=None):
         super().__init__(parent)
         self.segments = list(segments)
-        self.setMinimumHeight(300)
+        self.setMinimumHeight(210)
         self.setStyleSheet("background: transparent;")
 
         layout = QVBoxLayout(self)

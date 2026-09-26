@@ -110,13 +110,12 @@ class DashboardPage(QWidget):
     def _update_net_chart(self, *_):
         self.net_chart.set_points(self._overview_net_points())
         pct=self.net_chart.trend_change_percent()
-        period=self.net_duration.currentText()
         if pct is None:
             self.net_trend.setText("—")
             self.net_trend.setStyleSheet(f"color:{theme.MUTED};font-weight:700")
         else:
             sign="+" if pct >= 0 else ""
-            self.net_trend.setText(f"{sign}{pct:.1f}% · {period}")
+            self.net_trend.setText(f"{sign}{pct:.1f}%")
             color=theme.POSITIVE if pct >= 0 else theme.NEGATIVE
             self.net_trend.setStyleSheet(f"color:{color};font-weight:700")
 
@@ -156,6 +155,7 @@ class AccountsPage(QWidget):
             nickname=QLineEdit()
             nickname.setPlaceholderText("Optional nickname")
             nickname.setText(a.nickname or "")
+            nickname.setMinimumHeight(38)
             nickname.editingFinished.connect(
                 lambda account_id=a.id, editor=nickname: self._save_nickname(account_id,editor)
             )
@@ -165,6 +165,7 @@ class AccountsPage(QWidget):
                 item=QTableWidgetItem(val)
                 if offset in (4,5): item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
                 self.table.setItem(r,offset,item)
+        self.table.verticalHeader().setDefaultSectionSize(44)
         header=self.table.horizontalHeader()
         header.setSectionResizeMode(0,QHeaderView.Interactive)
         header.setSectionResizeMode(1,QHeaderView.Stretch)
@@ -663,7 +664,7 @@ class BudgetsPage(QWidget):
 class RecurringPage(QWidget):
     SORTS=(
         ("Next due: soonest","next_asc"),("Next due: latest","next_desc"),
-        ("Oldest recurring","oldest"),("Newest recurring","newest"),
+        ("Oldest","oldest"),("Newest","newest"),
         ("Price: highest","price_desc"),("Price: lowest","price_asc"),
         ("Age: oldest","age_desc"),("Age: newest","age_asc"),
         ("Total: highest","total_desc"),("Frequency: most often","frequency_asc"),
@@ -674,22 +675,27 @@ class RecurringPage(QWidget):
         super().__init__(parent); self.state=state
         l=QVBoxLayout(self); l.setContentsMargins(28,24,28,28); l.setSpacing(14)
         top=QHBoxLayout()
-        top.addWidget(page_header("Recurring","Detected recurring spending and recurring income."))
+        top.addWidget(page_header("Recurring","Detected repeating spending and income."))
         top.addStretch(); top.addWidget(QLabel("Sort"))
         self.sort=_NoWheelComboBox()
         for label,key in self.SORTS: self.sort.addItem(label,key)
         self.sort.currentIndexChanged.connect(self.refresh); top.addWidget(self.sort); l.addLayout(top)
 
-        self.spending_table=self._make_table()
-        self.income_table=self._make_table()
-        l.addWidget(card_with_title("Recurring spending",self.spending_table),1)
-        l.addWidget(card_with_title("Recurring income",self.income_table),1)
+        self.spending_table=self._make_table(True)
+        self.income_table=self._make_table(False)
+        l.addWidget(card_with_title("Spending",self.spending_table),1)
+        l.addWidget(card_with_title("Income",self.income_table),1)
         self.refresh()
 
-    def _make_table(self):
-        table=QTableWidget(0,7)
-        table.setHorizontalHeaderLabels(["Merchant","Category","Cadence / next","Amount","First seen","Total","Occurrences"])
-        style_table(table); table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+    def _make_table(self,include_category):
+        headers=["Merchant"]
+        if include_category: headers.append("Category")
+        headers += ["Cadence / next","Amount","First seen","Total","Occurrences"]
+        table=QTableWidget(0,len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        style_table(table)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        table.verticalHeader().setDefaultSectionSize(34)
         return table
 
     def _sorted(self,rows):
@@ -706,23 +712,27 @@ class RecurringPage(QWidget):
         if key=="newest": reverse=True
         return sorted(rows,key=accessors.get(key,accessors["next_asc"]),reverse=reverse)
 
-    def _fill(self,table,rows,empty_text):
+    def _fill(self,table,rows,empty_text,include_category):
         table.clearSpans(); rows=self._sorted(rows); table.setRowCount(len(rows))
         for r,row in enumerate(rows):
             x=row["charge"]
-            vals=[x.merchant,x.category,f"{x.cadence} · {x.next_date:%b %d}",money(x.amount),
-                  row["first_seen"].strftime("%b %d, %Y"),money(row["total_amount"]),str(row["occurrences"])]
+            vals=[x.merchant]
+            if include_category: vals.append(x.category)
+            vals += [f"{x.cadence} · {x.next_date:%b %d}",money(x.amount),
+                     row["first_seen"].strftime("%b %d, %Y"),money(row["total_amount"]),str(row["occurrences"])]
             for col,val in enumerate(vals):
                 item=QTableWidgetItem(val)
-                if col in (3,5,6): item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                item.setTextAlignment(Qt.AlignCenter)
                 table.setItem(r,col,item)
         if not rows:
-            table.setRowCount(1); table.setItem(0,0,QTableWidgetItem(empty_text)); table.setSpan(0,0,1,7)
+            table.setRowCount(1)
+            item=QTableWidgetItem(empty_text); item.setTextAlignment(Qt.AlignCenter)
+            table.setItem(0,0,item); table.setSpan(0,0,1,table.columnCount())
 
     def refresh(self,*_):
         details=self.state.recurring_details()
-        self._fill(self.spending_table,[x for x in details if x["charge"].direction=="spending"],"No recurring spending patterns detected.")
-        self._fill(self.income_table,[x for x in details if x["charge"].direction=="income"],"No recurring income patterns detected.")
+        self._fill(self.spending_table,[x for x in details if x["charge"].direction=="spending"],"No spending patterns detected.",True)
+        self._fill(self.income_table,[x for x in details if x["charge"].direction=="income"],"No income patterns detected.",False)
 
 
 class NetWorthPage(QWidget):
@@ -833,6 +843,31 @@ class CategoryTagFilter(QFrame):
         self._layout_contents()
 
 
+class BulkCategorizeDialog(QDialog):
+    def __init__(self,state,parent=None):
+        super().__init__(parent); self.state=state
+        self.setWindowTitle("Bulk categorize")
+        self.setObjectName("PasswordDialog")
+        l=QVBoxLayout(self); l.setContentsMargins(22,22,22,22); l.setSpacing(12)
+        title=QLabel("Bulk categorize"); title.setObjectName("SectionTitle"); l.addWidget(title)
+        note=QLabel("Apply one category to every transaction from the selected merchant.")
+        note.setWordWrap(True); note.setStyleSheet(f"color:{theme.MUTED}"); l.addWidget(note)
+        self.merchant=_NoWheelComboBox(); self.merchant.setEditable(True)
+        self.merchant.addItems(sorted({t.merchant for t in state.transactions() if t.merchant},key=str.casefold))
+        self.category=_NoWheelComboBox(); self.category.addItems(state.categories())
+        form=QGridLayout(); form.setHorizontalSpacing(10); form.setVerticalSpacing(9)
+        form.addWidget(QLabel("Merchant"),0,0); form.addWidget(self.merchant,0,1)
+        form.addWidget(QLabel("Category"),1,0); form.addWidget(self.category,1,1)
+        l.addLayout(form)
+        buttons=QHBoxLayout(); buttons.addStretch()
+        cancel=QPushButton("Cancel"); cancel.setObjectName("Secondary"); cancel.clicked.connect(self.reject)
+        apply=QPushButton("Apply to all"); apply.setObjectName("Primary"); apply.clicked.connect(self.accept)
+        buttons.addWidget(cancel); buttons.addWidget(apply); l.addLayout(buttons)
+
+    def values(self):
+        return self.merchant.currentText().strip(),self.category.currentText().strip()
+
+
 class TransactionsPage(QWidget):
     def __init__(self, state, vault=None, parent=None):
         super().__init__(parent); self.state=state; self.vault=vault; self._dates_initialized=False
@@ -841,6 +876,10 @@ class TransactionsPage(QWidget):
         top=QHBoxLayout()
         top.addWidget(page_header("Transactions","Filter, review, categorize, and analyze tracked activity."))
         top.addStretch()
+        self.bulk_btn=QPushButton("Bulk categorize")
+        self.bulk_btn.setObjectName("Secondary")
+        self.bulk_btn.clicked.connect(self._open_bulk_categorize)
+        top.addWidget(self.bulk_btn)
         self.import_btn=QPushButton("Import statement")
         self.import_btn.setObjectName("Primary")
         self.import_btn.clicked.connect(self._import_statement)
@@ -850,8 +889,8 @@ class TransactionsPage(QWidget):
         grid=QGridLayout(); grid.setSpacing(12)
         self.spend=DonutChart([])
         self.cash=CashFlowChart([])
-        self.spend.setMinimumHeight(310)
-        self.cash.setMinimumHeight(250)
+        self.spend.setFixedHeight(225)
+        self.cash.setFixedHeight(205)
         grid.addWidget(card_with_title("Spending by category",self.spend),0,0)
         grid.addWidget(card_with_title("Income vs. spending",self.cash),0,1)
         l.addLayout(grid)
@@ -923,16 +962,6 @@ class TransactionsPage(QWidget):
         filter_outer.addLayout(footer)
         l.addWidget(filter_card)
 
-        bulk=Card()
-        bulk_l=QHBoxLayout(bulk); bulk_l.setContentsMargins(16,10,16,10)
-        bulk_l.addWidget(QLabel("Bulk categorize merchant"))
-        self.bulk_merchant=_NoWheelComboBox(); self.bulk_merchant.setEditable(True); self.bulk_merchant.setMinimumWidth(240)
-        self.bulk_category=_NoWheelComboBox(); self.bulk_category.setMinimumWidth(180)
-        self.bulk_apply=QPushButton("Apply to all"); self.bulk_apply.setObjectName("Secondary")
-        self.bulk_apply.clicked.connect(self._bulk_categorize)
-        bulk_l.addWidget(self.bulk_merchant,1); bulk_l.addWidget(self.bulk_category); bulk_l.addWidget(self.bulk_apply)
-        l.addWidget(bulk)
-
         self.transactions=transaction_table([])
         l.addWidget(self.transactions,1)
 
@@ -963,9 +992,11 @@ class TransactionsPage(QWidget):
         self.state.set_transaction_category(transaction,category)
         self._apply_filters()
 
-    def _bulk_categorize(self):
-        merchant=self.bulk_merchant.currentText().strip()
-        category=self.bulk_category.currentText().strip()
+    def _open_bulk_categorize(self):
+        dialog=BulkCategorizeDialog(self.state,self)
+        if dialog.exec()!=QDialog.Accepted:
+            return
+        merchant,category=dialog.values()
         if not merchant or not category:
             return
         changed=self.state.bulk_set_merchant_category(merchant,category)
@@ -1087,17 +1118,6 @@ class TransactionsPage(QWidget):
         index=self.account_filter.findData(previous_account)
         self.account_filter.setCurrentIndex(index if index>=0 else 0)
         self.account_filter.blockSignals(False)
-
-        merchants=sorted({t.merchant for t in rows if t.merchant},key=str.casefold)
-        current_merchant=self.bulk_merchant.currentText()
-        self.bulk_merchant.clear(); self.bulk_merchant.addItems(merchants)
-        if current_merchant:
-            self.bulk_merchant.setEditText(current_merchant)
-
-        current_category=self.bulk_category.currentText()
-        self.bulk_category.clear(); self.bulk_category.addItems(categories)
-        if current_category and current_category in categories:
-            self.bulk_category.setCurrentText(current_category)
 
         if not self._dates_initialized:
             oldest=min((t.posted for t in rows),default=date.today())
