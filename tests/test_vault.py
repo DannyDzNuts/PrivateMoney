@@ -11,6 +11,17 @@ from privatemoney.storage import VaultError, VaultManager
 
 
 class VaultTests(unittest.TestCase):
+    def test_destroy_removes_vault_material(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault=VaultManager(Path(tmp))
+            vault.create("correct horse battery staple")
+            self.assertTrue(vault.exists)
+            vault.destroy()
+            self.assertFalse(vault.unlocked)
+            self.assertFalse(vault.exists)
+            self.assertFalse(vault.db_path.exists())
+            self.assertFalse(vault.salt_path.exists())
+
     def test_encrypted_round_trip_and_wrong_passphrase(self):
         passphrase = "correct horse battery staple"
 

@@ -18,6 +18,16 @@ PrivateMoney now includes an encrypted SQLCipher vault for local persistence. Th
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.5.2
+
+- Vector-drawn persistent lock/unlock icon that does not depend on emoji font support
+- Settings Access button switches between **Log in** and **Log out**
+- Red **DELETE DATA** action with destructive confirmation
+- Red **FORGOT PASSWORD** action on the unlock dialog
+- Passwords are never recoverable or resettable; forgotten-password recovery deletes the encrypted local data and starts fresh
+- Dashboard API controls moved behind session-only **Enable Developer Settings** confirmation
+- Plaid connection controls remain visible in normal Settings
+
 ## Added in 0.5.1
 
 - Custom CSV mapping per import with explicit **Not set** defaults

@@ -39,6 +39,9 @@ QPushButton#Primary {{ background: {VIOLET}; color: #17121F; border: 0; border-r
 QPushButton#Primary:hover {{ background: #CAB3FF; }}
 QPushButton#Secondary {{ background: {CHARCOAL}; color: {IVORY}; border: 1px solid {OUTLINE}; border-radius: 10px; padding: 9px 14px; font-weight: 650; }}
 QPushButton#Secondary:hover {{ background: {CARD_HOVER}; }}
+QPushButton#Danger {{ background: #3A1116; color: {NEGATIVE}; border: 1px solid #6A252D; border-radius: 10px; padding: 9px 14px; font-weight: 750; }}
+QPushButton#Danger:hover {{ background: #551820; border-color: {NEGATIVE}; color: #FFD9DE; }}
+QPushButton#Danger:pressed {{ background: #6A1B25; }}
 QLineEdit, QComboBox {{ background: {CHARCOAL}; border: 1px solid {OUTLINE}; border-radius: 10px; padding: 9px 11px; color: {IVORY}; }}
 QLineEdit:focus, QComboBox:focus {{ border-color: {VIOLET}; }}
 QTableWidget {{ background: {CARD}; alternate-background-color: {CHARCOAL}; border: 1px solid {OUTLINE}; border-radius: 12px; gridline-color: transparent; selection-background-color: {DEEP_VIOLET}; selection-color: {IVORY}; }}

@@ -451,8 +451,8 @@ class ReportsPage(QWidget):
 
 
 class SettingsPage(QScrollArea):
-    def __init__(self, state, api_server, plaid, api_token, vault, on_logout=None, parent=None):
-        super().__init__(parent); self.state=state; self.api_server=api_server; self.plaid=plaid; self.api_token=api_token; self.vault=vault; self.on_logout=on_logout; self._vault_error=''
+    def __init__(self, state, api_server, plaid, api_token, vault, on_logout=None, on_login=None, on_delete_data=None, parent=None):
+        super().__init__(parent); self.state=state; self.api_server=api_server; self.plaid=plaid; self.api_token=api_token; self.vault=vault; self.on_logout=on_logout; self.on_login=on_login; self.on_delete_data=on_delete_data; self._vault_error=''
         self.setWidgetResizable(True); self.setFrameShape(QFrame.NoFrame)
         host=QWidget(); self.setWidget(host); l=QVBoxLayout(host); l.setContentsMargins(28,24,28,28); l.setSpacing(16)
         l.addWidget(page_header("Settings","Private by default; external access must be explicitly configured."))
@@ -460,19 +460,14 @@ class SettingsPage(QScrollArea):
         access=Card(); alog=QVBoxLayout(access); alog.setContentsMargins(20,18,20,18); alog.setSpacing(9)
         ah=QLabel("Access"); ah.setObjectName("SectionTitle"); alog.addWidget(ah)
         self.access_status=QLabel(); self.access_status.setWordWrap(True); self.access_status.setStyleSheet(f"color:{theme.MUTED}"); alog.addWidget(self.access_status)
-        self.logout_btn=QPushButton("Log out"); self.logout_btn.setObjectName("Secondary"); self.logout_btn.clicked.connect(self._logout)
-        alog.addWidget(self.logout_btn,0,Qt.AlignLeft)
+        access_buttons=QHBoxLayout()
+        self.login_logout_btn=QPushButton("Log out"); self.login_logout_btn.setObjectName("Secondary"); self.login_logout_btn.clicked.connect(self._access_action)
+        self.delete_data_btn=QPushButton("DELETE DATA"); self.delete_data_btn.setObjectName("Danger"); self.delete_data_btn.clicked.connect(self._delete_data)
+        access_buttons.addWidget(self.login_logout_btn); access_buttons.addWidget(self.delete_data_btn); access_buttons.addStretch()
+        alog.addLayout(access_buttons)
+        danger_note=QLabel("Delete data permanently removes all PrivateMoney data on this computer and starts fresh.")
+        danger_note.setWordWrap(True); danger_note.setStyleSheet(f"color:{theme.MUTED}"); alog.addWidget(danger_note)
         l.addWidget(access)
-
-        api=Card(); a=QVBoxLayout(api); a.setContentsMargins(20,18,20,18); a.setSpacing(9)
-        title=QLabel("Dashboard API"); title.setObjectName("SectionTitle"); a.addWidget(title)
-        self.api_status=QLabel(); self.api_status.setStyleSheet(f"color:{theme.MUTED}"); a.addWidget(self.api_status)
-        token_row=QHBoxLayout(); self.token_preview=QLineEdit(); self.token_preview.setReadOnly(True); self.token_preview.setEchoMode(QLineEdit.Password); self.token_preview.setText(api_token)
-        copy=QPushButton("Copy token"); copy.setObjectName("Secondary"); copy.clicked.connect(lambda: QApplication.clipboard().setText(api_token))
-        token_row.addWidget(self.token_preview,1); token_row.addWidget(copy); a.addLayout(token_row)
-        curl=QPushButton("Copy curl example"); curl.setObjectName("Secondary"); curl.clicked.connect(self._copy_curl); a.addWidget(curl,0,Qt.AlignLeft)
-        note=QLabel("Read-only API · bearer-token protected · bound to 127.0.0.1 only. No Plaid secret or access token is ever exposed through it.")
-        note.setWordWrap(True); note.setStyleSheet(f"color:{theme.MUTED}"); a.addWidget(note); l.addWidget(api)
 
         pc=Card(); p=QVBoxLayout(pc); p.setContentsMargins(20,18,20,18); p.setSpacing(9)
         h=QLabel("Plaid bank connection"); h.setObjectName("SectionTitle"); p.addWidget(h)
@@ -490,6 +485,25 @@ class SettingsPage(QScrollArea):
         self.plaid_privacy=QLabel(); privacy=self.plaid_privacy
         privacy.setWordWrap(True); privacy.setStyleSheet(f"color:{theme.MUTED}"); p.addWidget(privacy); l.addWidget(pc)
 
+        self.dev_gate=Card(); dg=QVBoxLayout(self.dev_gate); dg.setContentsMargins(20,18,20,18); dg.setSpacing(9)
+        dgh=QLabel("Developer settings"); dgh.setObjectName("SectionTitle"); dg.addWidget(dgh)
+        dgn=QLabel("Advanced local integration controls are hidden by default.")
+        dgn.setWordWrap(True); dgn.setStyleSheet(f"color:{theme.MUTED}"); dg.addWidget(dgn)
+        enable_dev=QPushButton("Enable Developer Settings"); enable_dev.setObjectName("Secondary"); enable_dev.clicked.connect(self._enable_developer_settings)
+        dg.addWidget(enable_dev,0,Qt.AlignLeft); l.addWidget(self.dev_gate)
+
+        self.api_card=Card(); a=QVBoxLayout(self.api_card); a.setContentsMargins(20,18,20,18); a.setSpacing(9)
+        title=QLabel("Dashboard API"); title.setObjectName("SectionTitle"); a.addWidget(title)
+        self.api_status=QLabel(); self.api_status.setStyleSheet(f"color:{theme.MUTED}"); a.addWidget(self.api_status)
+        token_row=QHBoxLayout(); self.token_preview=QLineEdit(); self.token_preview.setReadOnly(True); self.token_preview.setEchoMode(QLineEdit.Password); self.token_preview.setText(api_token)
+        copy=QPushButton("Copy token"); copy.setObjectName("Secondary"); copy.clicked.connect(lambda: QApplication.clipboard().setText(api_token))
+        token_row.addWidget(self.token_preview,1); token_row.addWidget(copy); a.addLayout(token_row)
+        curl=QPushButton("Copy curl example"); curl.setObjectName("Secondary"); curl.clicked.connect(self._copy_curl); a.addWidget(curl,0,Qt.AlignLeft)
+        note=QLabel("Read-only API · bearer-token protected · bound to 127.0.0.1 only. No Plaid secret or access token is ever exposed through it.")
+        note.setWordWrap(True); note.setStyleSheet(f"color:{theme.MUTED}"); a.addWidget(note)
+        disable_dev=QPushButton("Disable Developer Settings"); disable_dev.setObjectName("Secondary"); disable_dev.clicked.connect(self._disable_developer_settings)
+        a.addWidget(disable_dev,0,Qt.AlignLeft); self.api_card.hide(); l.addWidget(self.api_card)
+
         ap=Card(); al=QVBoxLayout(ap); al.setContentsMargins(20,18,20,18); al.setSpacing(7)
         x=QLabel("Appearance"); x.setObjectName("SectionTitle"); al.addWidget(x)
         al.addWidget(QLabel("Midnight Violet")); detail=QLabel("OLED black · charcoal cards · deep violet surfaces · violet accent · ivory text"); detail.setStyleSheet(f"color:{theme.MUTED}"); al.addWidget(detail)
@@ -502,9 +516,33 @@ class SettingsPage(QScrollArea):
         self._vault_error = message
         self.refresh()
 
-    def _logout(self):
-        if callable(self.on_logout):
-            self.on_logout()
+    def _access_action(self):
+        if self.vault.unlocked:
+            if callable(self.on_logout):
+                self.on_logout()
+        else:
+            if callable(self.on_login):
+                self.on_login()
+
+    def _delete_data(self):
+        if callable(self.on_delete_data):
+            self.on_delete_data()
+
+    def _enable_developer_settings(self):
+        answer=QMessageBox.question(
+            self,
+            "Enable Developer Settings",
+            "Developer settings expose advanced local integration controls, including the local Dashboard API token. Enable them for this session?",
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        if answer == QMessageBox.Yes:
+            self.dev_gate.hide()
+            self.api_card.show()
+
+    def _disable_developer_settings(self):
+        self.api_card.hide()
+        self.dev_gate.show()
 
     def _configure_plaid(self):
         try:
@@ -549,12 +587,15 @@ class SettingsPage(QScrollArea):
 
         if self.vault.unlocked:
             access_text = "PrivateMoney is unlocked on this computer."
-            self.logout_btn.setEnabled(True)
+            self.login_logout_btn.setText("Log out")
+            self.login_logout_btn.setEnabled(True)
             self.plaid_privacy.setText("Your Plaid connection can be saved securely on this computer. Bank credentials are still entered only inside Plaid Link.")
         else:
             access_text = "PrivateMoney is locked."
-            self.logout_btn.setEnabled(False)
+            self.login_logout_btn.setText("Log in")
+            self.login_logout_btn.setEnabled(True)
             self.plaid_privacy.setText("Unlock PrivateMoney to save your Plaid connection and financial data.")
+        self.delete_data_btn.setEnabled(self.vault.exists)
         if self._vault_error:
             access_text += f"  Last error: {self._vault_error}"
         self.access_status.setText(access_text)

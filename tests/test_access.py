@@ -24,6 +24,9 @@ class AccessFlowTests(unittest.TestCase):
                 os.environ["XDG_DATA_HOME"] = tmp
                 window = MainWindow()
                 try:
+                    settings=window.pages[-1]
+                    self.assertTrue(settings.api_card.isHidden())
+                    self.assertFalse(settings.dev_gate.isHidden())
                     password = "correct horse battery staple"
                     window.vault.create(password)
                     window.state.restore_snapshot(
@@ -52,14 +55,18 @@ class AccessFlowTests(unittest.TestCase):
 
                     self.assertTrue(window.vault.unlocked)
                     self.assertEqual(len(window.state.accounts()), 1)
-                    self.assertEqual(window.lock_button.text(), "🔓")
+                    self.assertTrue(window.lock_button._unlocked)
 
                     window.lock_vault()
+
+                    settings=window.pages[-1]
+                    settings.refresh()
+                    self.assertEqual(settings.login_logout_btn.text(),"Log in")
 
                     self.assertFalse(window.vault.unlocked)
                     self.assertEqual(window.state.accounts(), [])
                     self.assertFalse(window.plaid.configured)
-                    self.assertEqual(window.lock_button.text(), "🔒")
+                    self.assertFalse(window.lock_button._unlocked)
 
                     window.vault.unlock(password)
                     self.assertTrue(
@@ -67,9 +74,11 @@ class AccessFlowTests(unittest.TestCase):
                     )
                     window._last_version = -1
                     window._refresh()
+                    settings.refresh()
+                    self.assertEqual(settings.login_logout_btn.text(),"Log out")
 
                     self.assertEqual(window.state.accounts()[0].name, "Checking")
-                    self.assertEqual(window.lock_button.text(), "🔓")
+                    self.assertTrue(window.lock_button._unlocked)
                 finally:
                     window.close()
         finally:

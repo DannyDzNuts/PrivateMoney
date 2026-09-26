@@ -511,6 +511,33 @@ class VaultManager:
             self.store.close()
             self.store = None
 
+    def destroy(self):
+        """Permanently delete all local PrivateMoney vault material."""
+        self.lock()
+        targets = (
+            self.db_path,
+            self.salt_path,
+            Path(str(self.db_path) + "-wal"),
+            Path(str(self.db_path) + "-shm"),
+            Path(str(self.db_path) + "-journal"),
+        )
+        errors = []
+        for path in targets:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                errors.append(f"{path.name}: {exc}")
+        if errors:
+            raise VaultError("Could not delete all PrivateMoney data: " + "; ".join(errors))
+        try:
+            fd = os.open(self.base_dir, os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        except OSError:
+            pass
+
     def save_import_profile(self, signature: str, profile: dict[str, Any]):
         if not self.store:
             raise VaultError("PrivateMoney is locked.")

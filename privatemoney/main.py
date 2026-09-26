@@ -44,6 +44,7 @@ class PasswordDialog(QDialog):
     def __init__(self, mode: str, parent=None):
         super().__init__(parent)
         self.mode = mode
+        self.forgot_requested = False
         self.setModal(True)
         self.setObjectName("PasswordDialog")
         self.setMinimumWidth(420)
@@ -89,6 +90,11 @@ class PasswordDialog(QDialog):
         layout.addWidget(self.error)
 
         buttons = QHBoxLayout()
+        if mode == "unlock":
+            forgot = QPushButton("FORGOT PASSWORD")
+            forgot.setObjectName("Danger")
+            forgot.clicked.connect(self._forgot_password)
+            buttons.addWidget(forgot)
         buttons.addStretch()
 
         cancel = QPushButton("Exit" if mode == "create" else "Cancel")
@@ -103,6 +109,10 @@ class PasswordDialog(QDialog):
         layout.addLayout(buttons)
 
         QTimer.singleShot(0, self.password.setFocus)
+
+    def _forgot_password(self):
+        self.forgot_requested = True
+        self.reject()
 
     def _submit(self):
         value = self.password.text()
@@ -127,6 +137,66 @@ class PasswordDialog(QDialog):
     @property
     def value(self) -> str:
         return self.password.text()
+
+
+class DestructiveConfirmDialog(QDialog):
+    def __init__(self, title: str, message: str, parent=None):
+        super().__init__(parent)
+        self.setModal(True)
+        self.setObjectName("PasswordDialog")
+        self.setMinimumWidth(470)
+        self.setWindowTitle(title)
+
+        layout=QVBoxLayout(self); layout.setContentsMargins(24,24,24,22); layout.setSpacing(12)
+        heading=QLabel(title); heading.setObjectName("SectionTitle"); layout.addWidget(heading)
+        body=QLabel(message); body.setWordWrap(True); body.setStyleSheet(f"color:{MUTED};"); layout.addWidget(body)
+        warning=QLabel("This cannot be undone."); warning.setStyleSheet("color:#FF8E9A;font-weight:700;"); layout.addWidget(warning)
+
+        buttons=QHBoxLayout(); buttons.addStretch()
+        cancel=QPushButton("Cancel"); cancel.setObjectName("Secondary"); cancel.clicked.connect(self.reject); buttons.addWidget(cancel)
+        delete=QPushButton("DELETE DATA"); delete.setObjectName("Danger"); delete.clicked.connect(self.accept); buttons.addWidget(delete)
+        layout.addLayout(buttons)
+
+
+class VaultToggleButton(QPushButton):
+    """Vector-drawn lock control so Linux font support cannot hide the icon."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._unlocked=False
+        self.setObjectName("VaultToggle")
+        self.setFixedSize(38,38)
+        self.setText("")
+
+    def set_unlocked(self, unlocked: bool):
+        unlocked=bool(unlocked)
+        if self._unlocked != unlocked:
+            self._unlocked=unlocked
+            self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter=QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(QColor("#F5F2FA"),2.1,Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(QRectF(12,17,14,11),2.5,2.5)
+
+        path=QPainterPath()
+        if self._unlocked:
+            path.moveTo(15,17)
+            path.lineTo(15,14)
+            path.cubicTo(15,10,17.5,7.5,21,7.5)
+            path.cubicTo(24,7.5,26,9.5,26,12)
+        else:
+            path.moveTo(15,17)
+            path.lineTo(15,13.5)
+            path.cubicTo(15,9.5,17.5,7.5,20,7.5)
+            path.cubicTo(22.5,7.5,25,9.5,25,13.5)
+            path.lineTo(25,17)
+        painter.drawPath(path)
+        painter.drawEllipse(QRectF(18.4,20.4,3.2,3.2))
+        painter.drawLine(20,23.6,20,26)
 
 
 class NavigationPane(QFrame):
@@ -211,6 +281,8 @@ class MainWindow(QMainWindow):
                 self.api_token,
                 self.vault,
                 on_logout=self.lock_vault,
+                on_login=self._prompt_unlock,
+                on_delete_data=self.request_delete_data,
             ),
         ]
         for page in self.pages:
@@ -236,9 +308,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(18, 8, 18, 8)
         layout.addStretch()
 
-        self.lock_button = QPushButton()
-        self.lock_button.setObjectName("VaultToggle")
-        self.lock_button.setFixedSize(38, 38)
+        self.lock_button = VaultToggleButton()
         self.lock_button.clicked.connect(self.toggle_vault)
         layout.addWidget(self.lock_button)
         return bar
@@ -334,6 +404,8 @@ class MainWindow(QMainWindow):
 
         dialog = PasswordDialog("unlock", self)
         if dialog.exec() != QDialog.Accepted:
+            if dialog.forgot_requested:
+                self.request_delete_data(forgot_password=True)
             return False
 
         try:
@@ -345,6 +417,40 @@ class MainWindow(QMainWindow):
         except Exception:
             QMessageBox.warning(self, "Enter password", "That password did not work.")
             return False
+
+    def request_delete_data(self, forgot_password: bool = False):
+        if not self.vault.exists:
+            return False
+
+        if forgot_password:
+            title="Forgot password?"
+            message=(
+                "PrivateMoney passwords cannot be recovered or reset. "
+                "To use PrivateMoney again, all existing data on this computer must be deleted."
+            )
+        else:
+            title="Delete all data?"
+            message=(
+                "This permanently deletes your accounts, transactions, saved import defaults, "
+                "Plaid connection data, and password from this computer. PrivateMoney will start fresh."
+            )
+
+        confirm=DestructiveConfirmDialog(title,message,self)
+        if confirm.exec() != QDialog.Accepted:
+            return False
+
+        try:
+            self.vault.destroy()
+        except Exception as exc:
+            QMessageBox.warning(self,"Delete data",str(exc))
+            return False
+
+        self.plaid.clear_sensitive_session()
+        self.state.clear_runtime()
+        self._last_version=-1
+        self._refresh()
+        QTimer.singleShot(0,self._prompt_create_password)
+        return True
 
     def toggle_vault(self):
         if self.vault.unlocked:
@@ -398,7 +504,7 @@ class MainWindow(QMainWindow):
         self.mode_label.setText(mode)
 
         unlocked = self.vault.unlocked
-        self.lock_button.setText("🔓" if unlocked else "🔒")
+        self.lock_button.set_unlocked(unlocked)
         self.lock_button.setToolTip(
             "Lock PrivateMoney" if unlocked else "Unlock PrivateMoney"
         )
