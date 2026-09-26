@@ -383,7 +383,7 @@ class MainWindow(QMainWindow):
         items = [
             ("Overview", "⌂"),
             ("Accounts", "▣"),
-            ("Budgets", "◫"),
+            ("Budgets & Goals", "◫"),
             ("Recurring", "↻"),
             ("Transactions", "⌗"),
             ("Settings", "⚙"),

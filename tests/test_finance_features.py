@@ -1,7 +1,7 @@
 import unittest
 from datetime import date, timedelta
 
-from privatemoney.models import Account, Transaction
+from privatemoney.models import Account, Goal, Transaction
 from privatemoney.state import FinanceState
 
 
@@ -71,6 +71,60 @@ class FinanceFeatureTests(unittest.TestCase):
         youtube=[tx for tx in state.transactions() if tx.merchant.casefold()=="youtube premium"]
         self.assertTrue(all(tx.category=="Subscriptions" for tx in youtube))
         self.assertEqual(next(tx for tx in state.transactions() if tx.merchant=="Other Merchant").category,"Other")
+
+    def test_recurring_income_detection(self):
+        state=FinanceState()
+        transactions=[
+            Transaction(date(2026,7,3),"PAYROLL","Income","Checking",1200.0,False,"p1"),
+            Transaction(date(2026,7,17),"PAYROLL","Income","Checking",1200.0,False,"p2"),
+            Transaction(date(2026,7,31),"PAYROLL","Income","Checking",1200.0,False,"p3"),
+            Transaction(date(2026,8,14),"PAYROLL","Income","Checking",1200.0,False,"p4"),
+            Transaction(date(2026,8,28),"PAYROLL","Income","Checking",1200.0,False,"p5"),
+            Transaction(date(2026,9,11),"PAYROLL","Income","Checking",1200.0,False,"p6"),
+        ]
+        state.restore_snapshot({
+            "source":"local",
+            "accounts":[Account("a","Checking","checking","Bank",100.0,100.0,"1")],
+            "transactions":transactions,"budgets":[],"goals":[],"recurring":[],"net_worth":[],"cashflow":[],
+        })
+        income=[r for r in state.recurring() if r.direction=="income"]
+        self.assertEqual(len(income),1)
+        self.assertEqual(income[0].cadence,"Every 2 weeks")
+        self.assertEqual(income[0].merchant,"PAYROLL")
+
+    def test_set_budget_uses_current_month_spending(self):
+        state=FinanceState()
+        today=date.today()
+        state.restore_snapshot({
+            "source":"local",
+            "accounts":[Account("a","Checking","checking","Bank",100.0,100.0,"1")],
+            "transactions":[
+                Transaction(today,"Store","Groceries","Checking",-40.0,False,"b1"),
+                Transaction(today,"Store","Groceries","Checking",-15.0,False,"b2"),
+            ],
+            "budgets":[],"goals":[],"recurring":[],"net_worth":[],"cashflow":[],
+        })
+        budget=state.set_budget("Groceries",200.0)
+        self.assertEqual(budget.spent,55.0)
+        self.assertEqual(budget.limit,200.0)
+
+    def test_goal_status_filters_direction_scope_and_period(self):
+        state=FinanceState()
+        today=date.today()
+        state.restore_snapshot({
+            "source":"local",
+            "accounts":[Account("a","Checking","checking","Bank",100.0,100.0,"1","Daily")],
+            "transactions":[
+                Transaction(today,"Walmart","Shopping","Checking",-40.0,False,"g1"),
+                Transaction(today,"Walmart","Shopping","Checking",-25.0,False,"g2"),
+                Transaction(today,"Payroll","Income","Checking",1000.0,False,"g3"),
+            ],
+            "budgets":[],"goals":[],"recurring":[],"net_worth":[],"cashflow":[],
+        })
+        goal=Goal("g","spent","merchant","Walmart",1,"month","less than",100.0)
+        status=state.goal_status(goal)
+        self.assertEqual(status["actual"],65.0)
+        self.assertTrue(status["met"])
 
     def test_recurring_monthly_pattern_detection(self):
         state=FinanceState()

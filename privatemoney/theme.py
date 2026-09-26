@@ -43,8 +43,8 @@ QPushButton#Secondary:hover {{ background: {CARD_HOVER}; }}
 QPushButton#Danger {{ background: #3B0B0B; color: {NEGATIVE}; border: 1px solid #7F1D1D; border-radius: 10px; padding: 9px 14px; font-weight: 750; }}
 QPushButton#Danger:hover {{ background: #5F1212; border-color: {NEGATIVE}; color: #FEE2E2; }}
 QPushButton#Danger:pressed {{ background: #7F1D1D; }}
-QLineEdit, QComboBox {{ background: {CHARCOAL}; border: 1px solid {OUTLINE}; border-radius: 10px; padding: 9px 11px; color: {IVORY}; }}
-QLineEdit:focus, QComboBox:focus {{ border-color: {VIOLET}; }}
+QLineEdit, QComboBox, QDateEdit, QSpinBox, QDoubleSpinBox {{ background: {CHARCOAL}; border: 1px solid {OUTLINE}; border-radius: 10px; padding: 9px 11px; color: {IVORY}; }}
+QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border-color: {VIOLET}; }}
 QTableWidget {{ background: {CARD}; alternate-background-color: {CHARCOAL}; border: 1px solid {OUTLINE}; border-radius: 12px; gridline-color: transparent; selection-background-color: {DEEP_VIOLET}; selection-color: {IVORY}; }}
 QHeaderView::section {{ background: {CHARCOAL}; color: {MUTED}; border: 0; border-bottom: 1px solid {OUTLINE}; padding: 9px; font-weight: 650; }}
 QProgressBar {{ background: {CHARCOAL}; border: 0; border-radius: 5px; min-height: 10px; max-height: 10px; }}

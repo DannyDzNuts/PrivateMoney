@@ -4,7 +4,7 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-from privatemoney.models import Account, Budget, RecurringCharge, Transaction
+from privatemoney.models import Account, Budget, Goal, RecurringCharge, Transaction
 from privatemoney.plaid import PlaidBridge
 from privatemoney.state import FinanceState
 from privatemoney.storage import VaultError, VaultManager
@@ -63,6 +63,9 @@ class VaultTests(unittest.TestCase):
                         )
                     ],
                     "budgets": [Budget("Dining", 42.18, 200.00)],
+                    "goals": [
+                        Goal("goal-1","spent","merchant","Test Merchant",1,"month","less than",100.00)
+                    ],
                     "recurring": [
                         RecurringCharge(
                             "Test Service",
@@ -70,6 +73,7 @@ class VaultTests(unittest.TestCase):
                             "Monthly",
                             date(2026, 10, 1),
                             "Subscriptions",
+                            "spending",
                         )
                     ],
                     "net_worth": [("Sep", 1234.56)],
@@ -106,6 +110,9 @@ class VaultTests(unittest.TestCase):
                 vault.unlock("this is the wrong passphrase")
 
             vault.unlock(passphrase)
+            raw_snapshot=vault.store.load_state_snapshot()
+            self.assertEqual(raw_snapshot["goals"][0].scope_value, "Test Merchant")
+
             restored_state = FinanceState()
             restored_plaid = PlaidBridge(restored_state)
             self.assertTrue(vault.restore_runtime(restored_state, restored_plaid))
@@ -114,6 +121,7 @@ class VaultTests(unittest.TestCase):
             self.assertEqual(restored_state.accounts()[0].nickname, "Daily")
             self.assertEqual(restored_state.transactions()[0].external_id, "tx-1")
             self.assertEqual(restored_state.budgets()[0].limit, 200.00)
+            self.assertEqual(restored_state.goals()[0].scope_value, "Test Merchant")
 
             session = restored_plaid.session_snapshot()
             self.assertEqual(session["client_id"], "client-id")

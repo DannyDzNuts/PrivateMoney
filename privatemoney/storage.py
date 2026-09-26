@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .models import Account, Budget, RecurringCharge, Transaction
+from .models import Account, Budget, Goal, RecurringCharge, Transaction
 
 
 SCHEMA = """
@@ -49,7 +49,19 @@ CREATE TABLE IF NOT EXISTS recurring (
     amount_cents INTEGER NOT NULL,
     cadence TEXT NOT NULL,
     next_date TEXT NOT NULL,
-    category TEXT NOT NULL DEFAULT ''
+    category TEXT NOT NULL DEFAULT '',
+    direction TEXT NOT NULL DEFAULT 'spending'
+);
+
+CREATE TABLE IF NOT EXISTS goals (
+    id TEXT PRIMARY KEY,
+    direction TEXT NOT NULL,
+    scope_type TEXT NOT NULL,
+    scope_value TEXT NOT NULL,
+    period_count INTEGER NOT NULL DEFAULT 1,
+    period_unit TEXT NOT NULL,
+    operator TEXT NOT NULL,
+    target_cents INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS net_worth_series (
@@ -146,6 +158,13 @@ class EncryptedStore:
             }
             if "nickname" not in account_columns:
                 self.conn.execute("ALTER TABLE accounts ADD COLUMN nickname TEXT")
+            recurring_columns = {
+                row[1] for row in self.conn.execute("PRAGMA table_info(recurring)")
+            }
+            if "direction" not in recurring_columns:
+                self.conn.execute(
+                    "ALTER TABLE recurring ADD COLUMN direction TEXT NOT NULL DEFAULT 'spending'"
+                )
             self.conn.commit()
             try:
                 self.path.chmod(0o600)
@@ -179,6 +198,7 @@ class EncryptedStore:
         accounts = state.accounts()
         transactions = state.transactions()
         budgets = state.budgets()
+        goals = state.goals()
         recurring = state.recurring()
         net_worth = state.net_worth()
         cashflow = state.cashflow()
@@ -242,22 +262,47 @@ class EncryptedStore:
                 [(b.category, _cents(b.spent), _cents(b.limit)) for b in budgets],
             )
 
+            self.conn.execute("DELETE FROM goals")
+            self.conn.executemany(
+                """
+                INSERT INTO goals(
+                    id,direction,scope_type,scope_value,period_count,
+                    period_unit,operator,target_cents
+                ) VALUES(?,?,?,?,?,?,?,?)
+                """,
+                [
+                    (
+                        g.id,
+                        g.direction,
+                        g.scope_type,
+                        g.scope_value,
+                        int(g.period_count),
+                        g.period_unit,
+                        g.operator,
+                        _cents(g.target),
+                    )
+                    for g in goals
+                ],
+            )
+
             self.conn.execute("DELETE FROM recurring")
             self.conn.executemany(
                 """
-                INSERT INTO recurring(id,merchant,amount_cents,cadence,next_date,category)
-                VALUES(?,?,?,?,?,?)
+                INSERT INTO recurring(
+                    id,merchant,amount_cents,cadence,next_date,category,direction
+                ) VALUES(?,?,?,?,?,?,?)
                 """,
                 [
                     (
                         hashlib.sha256(
-                            f"{r.merchant}|{r.cadence}|{r.next_date.isoformat()}".encode("utf-8")
+                            f"{r.direction}|{r.merchant}|{r.cadence}|{r.next_date.isoformat()}".encode("utf-8")
                         ).hexdigest(),
                         r.merchant,
                         _cents(r.amount),
                         r.cadence,
                         r.next_date.isoformat(),
                         r.category,
+                        r.direction,
                     )
                     for r in recurring
                 ],
@@ -328,6 +373,26 @@ class EncryptedStore:
             )
         ]
 
+        goals = [
+            Goal(
+                id=row[0],
+                direction=row[1],
+                scope_type=row[2],
+                scope_value=row[3],
+                period_count=int(row[4]),
+                period_unit=row[5],
+                operator=row[6],
+                target=_money(row[7]) or 0.0,
+            )
+            for row in self.conn.execute(
+                """
+                SELECT id,direction,scope_type,scope_value,period_count,
+                       period_unit,operator,target_cents
+                FROM goals ORDER BY rowid
+                """
+            )
+        ]
+
         recurring = [
             RecurringCharge(
                 merchant=row[0],
@@ -335,9 +400,13 @@ class EncryptedStore:
                 cadence=row[2],
                 next_date=date.fromisoformat(row[3]),
                 category=row[4] or "Other",
+                direction=row[5] or "spending",
             )
             for row in self.conn.execute(
-                "SELECT merchant,amount_cents,cadence,next_date,category FROM recurring ORDER BY next_date"
+                """
+                SELECT merchant,amount_cents,cadence,next_date,category,direction
+                FROM recurring ORDER BY next_date
+                """
             )
         ]
 
@@ -360,6 +429,7 @@ class EncryptedStore:
             "accounts": accounts,
             "transactions": transactions,
             "budgets": budgets,
+            "goals": goals,
             "recurring": recurring,
             "net_worth": net_worth,
             "cashflow": cashflow,

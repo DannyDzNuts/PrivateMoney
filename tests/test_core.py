@@ -2,6 +2,7 @@ import json
 import unittest
 import urllib.error
 import urllib.request
+from privatemoney import __version__
 from privatemoney.api import DashboardApiServer
 from privatemoney.plaid import PlaidBridge, PlaidError
 from privatemoney.state import FinanceState
@@ -17,7 +18,7 @@ class CoreTests(unittest.TestCase):
         with urllib.request.urlopen(self.api.base_url+"/api/v1/health") as r:
             body=json.load(r)
         self.assertEqual(body["status"],"ok")
-        self.assertEqual(body["version"],"0.8.0")
+        self.assertEqual(body["version"],__version__)
 
     def test_finance_requires_bearer(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
@@ -57,7 +58,7 @@ class CoreTests(unittest.TestCase):
 
         self.assertEqual(result["link_token"],"link-production-test")
         self.assertEqual(captured["url"],"https://production.plaid.com/link/token/create")
-        self.assertEqual(captured["user_agent"],"PrivateMoney/0.8.0")
+        self.assertEqual(captured["user_agent"],f"PrivateMoney/{__version__}")
         self.assertEqual(captured["client_id"],"client-id")
         self.assertEqual(captured["secret"],"production-secret")
 

@@ -49,6 +49,15 @@ class LineChart(ChartBase):
         self.points = list(points)
         self.update()
 
+    def trend_change_percent(self):
+        trend=self._trend_fit(self.points) if self.show_trend else None
+        if trend is None:
+            return None
+        start,end,_=trend
+        if abs(start) < 1e-9:
+            return None
+        return (end-start)/abs(start)*100.0
+
     @staticmethod
     def _trend_fit(points):
         if len(points) < 2:
@@ -195,8 +204,8 @@ class _PieCanvas(ChartBase):
     def __init__(self, segments, parent=None):
         super().__init__(parent)
         self.segments = list(segments)
-        self.setMinimumWidth(360)
-        self.setMinimumHeight(245)
+        self.setMinimumWidth(420)
+        self.setMinimumHeight(300)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
     def set_segments(self, segments):
@@ -343,7 +352,7 @@ class DonutChart(QWidget):
     def __init__(self, segments, parent=None):
         super().__init__(parent)
         self.segments = list(segments)
-        self.setMinimumHeight(245)
+        self.setMinimumHeight(300)
         self.setStyleSheet("background: transparent;")
 
         layout = QVBoxLayout(self)

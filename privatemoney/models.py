@@ -34,9 +34,22 @@ class Budget:
 
 
 @dataclass(slots=True)
+class Goal:
+    id: str
+    direction: str
+    scope_type: str
+    scope_value: str
+    period_count: int
+    period_unit: str
+    operator: str
+    target: float
+
+
+@dataclass(slots=True)
 class RecurringCharge:
     merchant: str
     amount: float
     cadence: str
     next_date: date
     category: str
+    direction: str = "spending"

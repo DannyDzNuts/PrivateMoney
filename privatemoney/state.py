@@ -6,7 +6,7 @@ from collections import defaultdict
 from statistics import median
 from datetime import date, timedelta
 from threading import RLock
-from .models import Account, RecurringCharge, Transaction
+from .models import Account, Budget, Goal, RecurringCharge, Transaction
 from .importers import external_id_for
 from .sample_data import ACCOUNTS, BUDGETS, CASHFLOW, NET_WORTH, RECURRING, SPENDING, TRANSACTIONS
 
@@ -20,6 +20,7 @@ class FinanceState:
         self._accounts = list(ACCOUNTS) if use_samples else []
         self._transactions = list(TRANSACTIONS) if use_samples else []
         self._budgets = list(BUDGETS) if use_samples else []
+        self._goals = []
         self._recurring = list(RECURRING) if use_samples else []
         self._net_worth = list(NET_WORTH) if use_samples else []
         self._spending = list(SPENDING) if use_samples else []
@@ -41,6 +42,7 @@ class FinanceState:
             self._accounts = []
             self._transactions = []
             self._budgets = []
+            self._goals = []
             self._recurring = []
             self._net_worth = []
             self._spending = []
@@ -78,7 +80,116 @@ class FinanceState:
 
     def budgets(self):
         with self._lock:
+            today=date.today()
+            for budget in self._budgets:
+                budget.spent=round(sum(
+                    -tx.amount for tx in self._transactions
+                    if tx.amount < 0 and tx.category == budget.category
+                    and tx.posted.year == today.year and tx.posted.month == today.month
+                ),2)
             return list(self._budgets)
+
+    def set_budget(self, category: str, limit: float):
+        category=category.strip() or "Other"
+        limit=max(0.0,float(limit))
+        with self._lock:
+            today=date.today()
+            spent=sum(
+                -tx.amount for tx in self._transactions
+                if tx.amount < 0 and tx.category == category
+                and tx.posted.year == today.year and tx.posted.month == today.month
+            )
+            for budget in self._budgets:
+                if budget.category.casefold() == category.casefold():
+                    budget.category=category
+                    budget.spent=round(spent,2)
+                    budget.limit=round(limit,2)
+                    self._version += 1
+                    return budget
+            budget=Budget(category,round(spent,2),round(limit,2))
+            self._budgets.append(budget)
+            self._version += 1
+            return budget
+
+    def goals(self):
+        with self._lock:
+            return list(self._goals)
+
+    def add_goal(self, goal: Goal):
+        with self._lock:
+            self._goals.append(goal)
+            self._version += 1
+            return goal
+
+    def delete_goal(self, goal_id: str):
+        with self._lock:
+            before=len(self._goals)
+            self._goals=[goal for goal in self._goals if goal.id != goal_id]
+            if len(self._goals) != before:
+                self._version += 1
+                return True
+            return False
+
+    @staticmethod
+    def _subtract_months(day: date, months: int) -> date:
+        month=day.month-1-int(months)
+        year=day.year+month//12
+        month=month%12+1
+        lengths=(31,29 if year%4==0 and (year%100!=0 or year%400==0) else 28,31,30,31,30,31,31,30,31,30,31)
+        return date(year,month,min(day.day,lengths[month-1]))
+
+    def goal_status(self, goal: Goal):
+        today=date.today()
+        count=max(1,int(goal.period_count or 1))
+        if goal.period_unit == "day":
+            start=today-timedelta(days=count-1)
+        elif goal.period_unit == "week":
+            start=today-timedelta(days=7*count-1)
+        elif goal.period_unit == "year":
+            try:
+                start=today.replace(year=today.year-count)
+            except ValueError:
+                start=today.replace(year=today.year-count,day=28)
+        else:
+            start=self._subtract_months(today,count)
+
+        value_key=goal.scope_value.casefold()
+        with self._lock:
+            accounts={a.name:((a.nickname or "").strip() or a.name) for a in self._accounts}
+            rows=[]
+            for tx in self._transactions:
+                if tx.posted < start or tx.posted > today or tx.pending:
+                    continue
+                if goal.direction == "spent" and tx.amount >= 0:
+                    continue
+                if goal.direction == "received" and tx.amount <= 0:
+                    continue
+                if goal.scope_type == "merchant":
+                    matches=tx.merchant.casefold() == value_key
+                elif goal.scope_type == "category":
+                    matches=tx.category.casefold() == value_key
+                else:
+                    display=accounts.get(tx.account,tx.account)
+                    matches=tx.account.casefold() == value_key or display.casefold() == value_key
+                if matches:
+                    rows.append(tx)
+
+        actual=round(sum((-tx.amount if goal.direction=="spent" else tx.amount) for tx in rows),2)
+        target=round(float(goal.target),2)
+        if goal.operator == "less than":
+            met=actual < target
+        elif goal.operator == "greater than":
+            met=actual > target
+        else:
+            met=round(actual,2) == round(target,2)
+        return {
+            "actual":actual,
+            "target":target,
+            "met":met,
+            "start":start,
+            "end":today,
+            "transaction_count":len(rows),
+        }
 
     def recurring(self):
         with self._lock:
@@ -91,24 +202,25 @@ class FinanceState:
 
         groups=defaultdict(list)
         for tx in transactions:
-            if tx.pending or tx.amount >= 0:
+            if tx.pending or tx.amount == 0:
                 continue
+            direction="income" if tx.amount > 0 else "spending"
             key=self._recurring_merchant_key(tx.merchant)
             if key:
-                groups[key].append(tx)
+                groups[(direction,key)].append(tx)
 
         details=[]
         today=date.today()
         for charge in charges:
             key=self._recurring_merchant_key(charge.merchant)
-            rows=sorted(groups.get(key,[]),key=lambda tx:tx.posted)
+            rows=sorted(groups.get((charge.direction,key),[]),key=lambda tx:tx.posted)
             if rows:
                 first_seen=rows[0].posted
-                total_spent=round(sum(-tx.amount for tx in rows),2)
+                total_amount=round(sum(abs(tx.amount) for tx in rows),2)
                 occurrences=len(rows)
             else:
                 first_seen=charge.next_date
-                total_spent=round(charge.amount,2)
+                total_amount=round(charge.amount,2)
                 occurrences=1
             cadence_days={
                 "Weekly":7,
@@ -121,7 +233,8 @@ class FinanceState:
                 "charge":charge,
                 "first_seen":first_seen,
                 "age_days":max(0,(today-first_seen).days),
-                "total_spent":total_spent,
+                "total_spent":total_amount,
+                "total_amount":total_amount,
                 "occurrences":occurrences,
                 "frequency_days":cadence_days,
             })
@@ -164,7 +277,7 @@ class FinanceState:
                 and t.posted.month == previous_month
             )
             spending_variance = month_spend - previous_month_spending
-            upcoming = sum(r.amount for r in self._recurring)
+            upcoming = sum(r.amount for r in self._recurring if r.direction == "spending")
             return {
                 "source": self._source,
                 "net_worth": round(net, 2),
@@ -335,6 +448,7 @@ class FinanceState:
                 reverse=True,
             )
             self._budgets = list(snapshot.get("budgets") or [])
+            self._goals = list(snapshot.get("goals") or [])
             saved_recurring = list(snapshot.get("recurring") or [])
             self._recurring = (
                 self._derive_recurring(self._transactions)
@@ -478,12 +592,13 @@ class FinanceState:
     def _derive_recurring(cls, transactions: list[Transaction]):
         groups = defaultdict(list)
         for tx in transactions:
-            if tx.pending or tx.amount >= 0:
+            if tx.pending or tx.amount == 0:
                 continue
             key = cls._recurring_merchant_key(tx.merchant)
             if not key:
                 continue
-            groups[key].append(tx)
+            direction = "income" if tx.amount > 0 else "spending"
+            groups[(direction,key)].append(tx)
 
         patterns = []
         cadence_rules = (
@@ -494,7 +609,7 @@ class FinanceState:
             ("Yearly", 365, 330, 400, 2, 25),
         )
 
-        for rows in groups.values():
+        for (direction,_), rows in groups.items():
             rows = sorted(rows, key=lambda tx: tx.posted)
             unique_dates = []
             for tx in rows:
@@ -516,14 +631,7 @@ class FinanceState:
             cadence_days = None
             tolerance = None
             minimum_occurrences = None
-            for (
-                label,
-                expected,
-                low,
-                high,
-                minimum,
-                allowed_error,
-            ) in cadence_rules:
+            for label, expected, low, high, minimum, allowed_error in cadence_rules:
                 if low <= typical_gap <= high:
                     cadence = label
                     cadence_days = int(round(typical_gap or expected))
@@ -541,14 +649,9 @@ class FinanceState:
             if typical_amount <= 0:
                 continue
 
-            # Require broadly similar charges for frequent merchant visits,
-            # while allowing utilities/subscriptions to vary modestly.
             max_deviation = max(abs(amount - typical_amount) for amount in charges)
             allowed_amount_deviation = max(5.0, typical_amount * 0.35)
-            if max_deviation > allowed_amount_deviation and cadence in {
-                "Weekly",
-                "Every 2 weeks",
-            }:
+            if max_deviation > allowed_amount_deviation and cadence in {"Weekly","Every 2 weeks"}:
                 continue
 
             latest = unique_dates[-1]
@@ -563,6 +666,7 @@ class FinanceState:
                     cadence=cadence,
                     next_date=next_date,
                     category=latest.category or "Other",
+                    direction=direction,
                 )
             )
 

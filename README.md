@@ -18,6 +18,20 @@ PrivateMoney now includes an encrypted SQLCipher vault for local persistence. Th
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.12
+
+- Renamed **Budgets** to **Budgets & Goals**
+- **New budget** now creates/updates a real monthly category budget instead of being disabled
+- Added persisted monetary goals using rules such as amount spent/received at/from a merchant, bank/account, or category over a configurable period compared with a target amount
+- Goal progress is evaluated against the current transaction history and stored inside the encrypted vault
+- Net-worth best-fit trajectory now shows its percentage change for the selected 1M / 3M / 6M / 1Y / All range
+- Recurring detection now includes positive transactions such as paychecks
+- Recurring spending and recurring income are displayed in separate sortable tables
+- Rebuilt the Transactions category selector as one custom in-field tag control with a fixed attached drop arrow and deterministic horizontal scrolling
+- Removing a category tag preserves the current horizontal scroll position
+- Advanced Transactions filters inherit the filter-card background and date/number controls use the normal app theme
+- Expanded the Transactions category chart area so external leader labels are not clipped
+
 ## Added in 0.11
 
 - Overview net worth adds a straight best-fit trajectory line: green for upward trend, red for downward trend
