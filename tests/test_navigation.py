@@ -24,6 +24,16 @@ class NavigationTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_net_worth_tab_removed(self):
+        window=MainWindow()
+        try:
+            labels=[button.text() for button in window.nav_buttons]
+            self.assertEqual(len(labels),7)
+            self.assertFalse(any("Net worth" in label for label in labels))
+            self.assertEqual(window.stack.count(),7)
+        finally:
+            window.close()
+
     def test_page_navigation_clamps_and_updates_selection(self):
         window = MainWindow()
         try:
