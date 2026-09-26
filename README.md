@@ -18,6 +18,15 @@ PrivateMoney now includes an encrypted SQLCipher vault for local persistence. Th
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.9
+
+- Overview and Reports category pies use external leader-line labels instead of a separate legend
+- Pie slices show percentage values inside each slice and explode farther as their share increases
+- Removed the standalone **Net worth** navigation tab; net-worth history remains on Overview
+- Transaction category dropdowns ignore mouse-wheel selection changes
+- Reports support combinable category, history-window, date-range, dollar-range, account, and merchant filters
+- Report charts, statistics, and transaction rows all use the same active filter set
+
 ## Added in 0.8
 
 - Overview net-worth duration control: 1M, 3M, 6M, 1Y, or All
