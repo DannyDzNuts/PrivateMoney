@@ -84,6 +84,41 @@ class FinanceState:
         with self._lock:
             return list(self._recurring)
 
+    def recurring_details(self):
+        with self._lock:
+            transactions=list(self._transactions)
+            charges=list(self._recurring)
+
+        groups=defaultdict(list)
+        for tx in transactions:
+            if tx.pending or tx.amount >= 0:
+                continue
+            key=self._recurring_merchant_key(tx.merchant)
+            if key:
+                groups[key].append(tx)
+
+        details=[]
+        today=date.today()
+        for charge in charges:
+            key=self._recurring_merchant_key(charge.merchant)
+            rows=sorted(groups.get(key,[]),key=lambda tx:tx.posted)
+            if rows:
+                first_seen=rows[0].posted
+                total_spent=round(sum(-tx.amount for tx in rows),2)
+                occurrences=len(rows)
+            else:
+                first_seen=charge.next_date
+                total_spent=round(charge.amount,2)
+                occurrences=1
+            details.append({
+                "charge":charge,
+                "first_seen":first_seen,
+                "age_days":max(0,(today-first_seen).days),
+                "total_spent":total_spent,
+                "occurrences":occurrences,
+            })
+        return details
+
     def net_worth(self):
         with self._lock:
             return self._derive_net_worth(self._accounts, self._transactions)
