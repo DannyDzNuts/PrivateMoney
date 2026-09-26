@@ -18,6 +18,19 @@ PrivateMoney now includes an encrypted SQLCipher vault for local persistence. Th
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.10
+
+- Overview gives the category pie and Budgets more horizontal room while Net worth and Cash flow share the narrower width
+- Pie percentages use adaptive radial placement to reduce overlap
+- Removed the old standalone Transactions tab and renamed the former Reports workspace to **Transactions**
+- Transaction category dropdowns now live in the consolidated Transactions workspace
+- Transactions defaults to the oldest tracked transaction through today's date
+- Multi-category filtering uses removable searchable category tags
+- Merchant-wide bulk recategorization can update every matching transaction at once
+- Accounts support encrypted, autosaved nicknames; nicknames replace account names elsewhere in the UI without changing bank/account identity
+- Account nicknames survive Plaid refreshes and vault restarts
+- Fixed recurring rows that could visually retain the empty-state table span and hide category/cadence/amount fields
+
 ## Added in 0.9
 
 - Overview and Reports category pies use external leader-line labels instead of a separate legend
