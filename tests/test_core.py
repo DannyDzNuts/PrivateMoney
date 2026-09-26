@@ -17,7 +17,7 @@ class CoreTests(unittest.TestCase):
         with urllib.request.urlopen(self.api.base_url+"/api/v1/health") as r:
             body=json.load(r)
         self.assertEqual(body["status"],"ok")
-        self.assertEqual(body["version"],"0.5.4")
+        self.assertEqual(body["version"],"0.5.5")
 
     def test_finance_requires_bearer(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
@@ -31,6 +31,35 @@ class CoreTests(unittest.TestCase):
         self.assertIn("net_worth",body); self.assertEqual(body["source"],"local")
 
 
+
+    def test_plaid_request_builds_with_versioned_user_agent(self):
+        bridge=PlaidBridge(FinanceState())
+        bridge.configure("client-id","production-secret")
+
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self,*args): return False
+            def read(self): return b'{"link_token":"link-production-test"}'
+
+        captured={}
+        original=urllib.request.urlopen
+        def fake_urlopen(req,timeout=45):
+            captured["url"]=req.full_url
+            captured["user_agent"]=req.get_header("User-agent")
+            captured["client_id"]=req.get_header("Plaid-client-id")
+            captured["secret"]=req.get_header("Plaid-secret")
+            return FakeResponse()
+        urllib.request.urlopen=fake_urlopen
+        try:
+            result=bridge._request("/link/token/create",{"test":True})
+        finally:
+            urllib.request.urlopen=original
+
+        self.assertEqual(result["link_token"],"link-production-test")
+        self.assertEqual(captured["url"],"https://production.plaid.com/link/token/create")
+        self.assertEqual(captured["user_agent"],"PrivateMoney/0.5.5")
+        self.assertEqual(captured["client_id"],"client-id")
+        self.assertEqual(captured["secret"],"production-secret")
 
     def test_plaid_configure_forces_production(self):
         bridge=PlaidBridge(FinanceState())

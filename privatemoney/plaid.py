@@ -6,6 +6,7 @@ import urllib.request
 from datetime import date, datetime, timezone
 from threading import RLock
 from .models import Account, Transaction
+from . import __version__
 
 
 class PlaidError(RuntimeError):

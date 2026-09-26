@@ -18,6 +18,11 @@ PrivateMoney now includes an encrypted SQLCipher vault for local persistence. Th
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.5.5
+
+- Fixed Plaid request construction referencing an undefined application version at runtime
+- Added a regression test for the real Plaid HTTP request path, including Production endpoint and User-Agent construction
+
 ## Added in 0.5.4
 
 - Create-password Return/Enter handling now intercepts the actual Qt key event and cannot trigger an auto-default submit button
