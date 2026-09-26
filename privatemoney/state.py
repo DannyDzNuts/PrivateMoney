@@ -110,12 +110,20 @@ class FinanceState:
                 first_seen=charge.next_date
                 total_spent=round(charge.amount,2)
                 occurrences=1
+            cadence_days={
+                "Weekly":7,
+                "Every 2 weeks":14,
+                "Monthly":30,
+                "Quarterly":91,
+                "Yearly":365,
+            }.get(charge.cadence,9999)
             details.append({
                 "charge":charge,
                 "first_seen":first_seen,
                 "age_days":max(0,(today-first_seen).days),
                 "total_spent":total_spent,
                 "occurrences":occurrences,
+                "frequency_days":cadence_days,
             })
         return details
 
