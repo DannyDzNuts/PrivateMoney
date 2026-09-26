@@ -447,7 +447,8 @@ class StatementImportDialog(QDialog):
         shown=rows[:12]; self.preview.setRowCount(len(shown))
         for r,row in enumerate(shown):
             target=(row.account_hint or self._account_target()) if self.use_account_column.isChecked() else self._account_target()
-            vals=[row.posted.strftime("%b %d, %Y"),row.merchant,money(row.amount_cents/100),target or "—"]
+            display_target=self.state.account_display_name(target) if target else "—"
+            vals=[row.posted.strftime("%b %d, %Y"),row.merchant,money(row.amount_cents/100),display_target]
             for c,val in enumerate(vals):
                 item=QTableWidgetItem(val)
                 if c==2: item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
@@ -544,6 +545,10 @@ class CategoryTagFilter(QWidget):
         self.input.blockSignals(True)
         self.input.clear()
         self.input.addItems([x for x in self._options if x not in self._selected])
+        completer=self.input.completer()
+        if completer is not None:
+            completer.setCaseSensitivity(Qt.CaseInsensitive)
+            completer.setFilterMode(Qt.MatchContains)
         self.input.setCurrentIndex(-1)
         self.input.setEditText(text if text not in self._selected else "")
         self.input.blockSignals(False)
