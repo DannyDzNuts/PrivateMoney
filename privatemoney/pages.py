@@ -595,7 +595,7 @@ class CategoryTagFilter(QWidget):
         shell.setSpacing(0)
 
         self.scroller=QScrollArea()
-        self.scroller.setWidgetResizable(True)
+        self.scroller.setWidgetResizable(False)
         self.scroller.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroller.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroller.setFrameShape(QFrame.NoFrame)
@@ -646,7 +646,14 @@ class CategoryTagFilter(QWidget):
 
     def resizeEvent(self,event):
         super().resizeEvent(event)
+        self._resize_content()
         self._ensure_search_visible()
+
+    def _resize_content(self):
+        viewport_width=max(1,self.scroller.viewport().width())
+        width=max(viewport_width,self.row.sizeHint().width())
+        height=max(34,self.scroller.viewport().height())
+        self.content.resize(width,height)
 
     def set_options(self, options):
         self._options=list(options)
@@ -711,6 +718,7 @@ class CategoryTagFilter(QWidget):
             tag.clicked.connect(lambda checked=False, v=value: self._remove(v))
             self.tags.addWidget(tag)
         self._populate_menu(self.input.text())
+        self._resize_content()
         self._ensure_search_visible()
 
 
