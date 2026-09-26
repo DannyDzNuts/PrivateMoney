@@ -222,6 +222,7 @@ class _PieCanvas(ChartBase):
 
         start_deg = 90.0
         geometry = []
+        percent_boxes = []
         for index, (label, value) in enumerate(self.segments):
             value = max(0.0, float(value))
             fraction = value / total
@@ -239,19 +240,25 @@ class _PieCanvas(ChartBase):
             painter.setBrush(QColor(PALETTE[index % len(PALETTE)]))
             painter.drawPie(pie_rect, int(start_deg * 16), int(span_deg * 16))
 
-            percent_radius = radius * .56
-            percent_x = center_x + dx + percent_radius * math.cos(angle)
-            percent_y = center_y + dy - percent_radius * math.sin(angle)
+            percent_rect = None
+            for radius_factor in (.56, .72, .40, .84):
+                percent_radius = radius * radius_factor
+                percent_x = center_x + dx + percent_radius * math.cos(angle)
+                percent_y = center_y + dy - percent_radius * math.sin(angle)
+                candidate = QRectF(percent_x - 24, percent_y - 9, 48, 18)
+                if not any(candidate.adjusted(-2,-1,2,1).intersects(other) for other in percent_boxes):
+                    percent_rect = candidate
+                    break
+            if percent_rect is None:
+                percent_rect = candidate
+
+            percent_boxes.append(percent_rect)
             percent_font = QFont(self.font())
-            percent_font.setPointSize(9 if fraction >= .08 else 8)
+            percent_font.setPointSize(9 if fraction >= .08 else 7)
             percent_font.setBold(True)
             painter.setFont(percent_font)
             painter.setPen(QColor(theme.IVORY))
-            painter.drawText(
-                QRectF(percent_x - 30, percent_y - 10, 60, 20),
-                Qt.AlignCenter,
-                f"{fraction:.0%}",
-            )
+            painter.drawText(percent_rect, Qt.AlignCenter, f"{fraction:.0%}")
 
             anchor_x = center_x + dx + radius * .94 * math.cos(angle)
             anchor_y = center_y + dy - radius * .94 * math.sin(angle)
