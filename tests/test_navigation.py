@@ -21,6 +21,7 @@ class NavigationTests(unittest.TestCase):
             self.assertEqual(dashboard.net_duration.currentText(),"6M")
             self.assertFalse(dashboard.net_chart.show_points)
             self.assertTrue(dashboard.net_chart.hover_tooltip)
+            self.assertTrue(dashboard.net_chart.show_trend)
         finally:
             window.close()
 
