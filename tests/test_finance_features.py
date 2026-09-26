@@ -108,6 +108,28 @@ class FinanceFeatureTests(unittest.TestCase):
         self.assertEqual(budget.spent,55.0)
         self.assertEqual(budget.limit,200.0)
 
+    def test_budget_delete_and_goal_update(self):
+        state=FinanceState()
+        state.restore_snapshot({
+            "source":"local",
+            "accounts":[Account("a","Checking","checking","Bank",100.0,100.0,"1")],
+            "transactions":[],"budgets":[],"goals":[],"recurring":[],"net_worth":[],"cashflow":[],
+        })
+        state.set_budget("Groceries",250.0)
+        self.assertEqual(len(state.budgets()),1)
+        self.assertTrue(state.delete_budget("groceries"))
+        self.assertEqual(state.budgets(),[])
+
+        original=Goal("goal-1","spent","merchant","Store",1,"month","less than",100.0)
+        state.add_goal(original)
+        updated=Goal("other-id","received","bank","Checking",1,"month","greater than",500.0)
+        self.assertTrue(state.update_goal("goal-1",updated))
+        saved=state.goals()[0]
+        self.assertEqual(saved.id,"goal-1")
+        self.assertEqual(saved.direction,"received")
+        self.assertEqual(saved.scope_type,"bank")
+        self.assertEqual(saved.target,500.0)
+
     def test_goal_status_filters_direction_scope_and_period(self):
         state=FinanceState()
         today=date.today()

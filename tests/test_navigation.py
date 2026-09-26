@@ -1,13 +1,17 @@
 import os
 import unittest
+from datetime import date, timedelta
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ["PRIVATE_MONEY_TESTING"] = "1"
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from privatemoney.main import MainWindow
-from privatemoney.pages import CategoryTagFilter
+from privatemoney.models import Account, Transaction
+from privatemoney.pages import CategoryTagFilter, DashboardPage
+from privatemoney.state import FinanceState
 
 
 class NavigationTests(unittest.TestCase):
@@ -51,6 +55,26 @@ class NavigationTests(unittest.TestCase):
         field._remove("Three")
         self.assertEqual(field._scroll,min(before,field._max_scroll()))
         field.deleteLater()
+
+    def test_overview_lists_latest_five_centered_transactions(self):
+        state=FinanceState()
+        today=date.today()
+        transactions=[
+            Transaction(today-timedelta(days=i),f"Merchant {i}","Other","Checking",-float(i+1),False,f"t{i}")
+            for i in range(7)
+        ]
+        state.restore_snapshot({
+            "source":"local",
+            "accounts":[Account("a","Checking","checking","Bank",100.0,100.0,"1")],
+            "transactions":transactions,"budgets":[],"goals":[],"recurring":[],"net_worth":[],"cashflow":[],
+        })
+        page=DashboardPage(state)
+        try:
+            self.assertEqual(page.recent_table.rowCount(),5)
+            self.assertEqual(page.recent_table.item(0,1).text(),"Merchant 0")
+            self.assertEqual(page.recent_table.item(0,0).textAlignment(),int(Qt.AlignCenter))
+        finally:
+            page.deleteLater()
 
     def test_page_navigation_clamps_and_updates_selection(self):
         window = MainWindow()

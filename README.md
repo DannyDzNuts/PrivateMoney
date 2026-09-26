@@ -18,6 +18,18 @@ PrivateMoney now includes an encrypted SQLCipher vault for local persistence. Th
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.14
+
+- Centered standard table text and headers across PrivateMoney, including transaction/account/recurring/import tables
+- Centered the editable transaction-category selector and account nickname editor inside their table cells
+- Budgets now use a shorter fixed-width progress bar and compact dollar progress label
+- Added an **Edit** button to every budget row on Budgets & Goals
+- Budget edit dialog supports category/limit changes and includes a confirmed **Delete budget** action
+- Added **Edit** controls for monetary goals while retaining quick delete
+- Goal edit dialog preloads the current rule and saves changes back to the existing goal
+- Overview now includes the five most recent transactions in a compact table
+- Recent transaction account names respect account nicknames
+
 ## Added in 0.13
 
 - Net-worth trajectory badge now shows only the percentage change because the selected range is already visible beside it

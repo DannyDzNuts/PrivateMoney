@@ -1,5 +1,6 @@
 from __future__ import annotations
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout
 from . import theme
 
 
@@ -41,21 +42,42 @@ class MetricCard(Card):
 
 
 class BudgetRow(QFrame):
-    def __init__(self, category: str, spent: float, limit: float, parent=None):
+    def __init__(self, category: str, spent: float, limit: float, edit_callback=None, parent=None):
         super().__init__(parent)
         self.setObjectName("BudgetRow")
         self.setStyleSheet("QFrame#BudgetRow { background: transparent; border: 0; }")
-        outer = QVBoxLayout(self); outer.setContentsMargins(0, 7, 0, 7); outer.setSpacing(7)
-        row = QHBoxLayout(); row.setSpacing(8)
-        name = QLabel(category); name.setStyleSheet("font-weight:650")
-        amount = QLabel(f"{money(spent)} / {money(limit)}"); amount.setStyleSheet(f"color:{theme.MUTED}")
-        row.addWidget(name); row.addStretch(); row.addWidget(amount)
-        bar = QProgressBar(); bar.setTextVisible(False); bar.setRange(0, 100)
-        pct = 0 if limit <= 0 else min(100, round(spent / limit * 100))
+        row=QHBoxLayout(self)
+        row.setContentsMargins(0,7,0,7)
+        row.setSpacing(12)
+
+        name=QLabel(category)
+        name.setStyleSheet("font-weight:650")
+        name.setMinimumWidth(130)
+
+        bar=QProgressBar()
+        bar.setTextVisible(False)
+        bar.setRange(0,100)
+        bar.setFixedWidth(280)
+        bar.setFixedHeight(12)
+        pct=0 if limit <= 0 else min(100,round(spent/limit*100))
         bar.setValue(pct)
         if spent > limit:
             bar.setStyleSheet(f"QProgressBar::chunk {{ background:{theme.NEGATIVE}; border-radius:5px; }}")
-        outer.addLayout(row); outer.addWidget(bar)
+
+        amount=QLabel(f"{money(spent)} / {money(limit)}")
+        amount.setStyleSheet(f"color:{theme.MUTED}")
+        amount.setAlignment(Qt.AlignCenter)
+        amount.setFixedWidth(165)
+
+        row.addWidget(name,1)
+        row.addWidget(bar)
+        row.addWidget(amount)
+        if callable(edit_callback):
+            edit=QPushButton("Edit")
+            edit.setObjectName("Secondary")
+            edit.setFixedWidth(72)
+            edit.clicked.connect(lambda checked=False:edit_callback())
+            row.addWidget(edit)
 
 
 class EmptyState(Card):

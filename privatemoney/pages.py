@@ -6,7 +6,7 @@ from PySide6.QtCore import QEvent, Signal, Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QAbstractItemView, QCheckBox, QComboBox, QDateEdit, QDialog, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QStackedWidget, QTableWidget, QTableWidgetItem,
+    QLabel, QLineEdit, QMenu, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QStackedWidget, QStyledItemDelegate, QTableWidget, QTableWidgetItem,
     QToolButton, QVBoxLayout, QWidget
 )
 from .charts import CashFlowChart, DonutChart, LineChart
@@ -89,6 +89,8 @@ class DashboardPage(QWidget):
         grid.setColumnStretch(0,1); grid.setColumnStretch(1,1); grid.setColumnStretch(2,3)
         grid.setRowStretch(0,1); grid.setRowStretch(1,1)
         l.addLayout(grid,1)
+        self.recent_table=transaction_table([],compact=True)
+        l.addWidget(card_with_title("Recent transactions",self.recent_table,"Latest 5"))
         self.refresh()
 
     def _overview_net_points(self):
@@ -135,6 +137,12 @@ class DashboardPage(QWidget):
         self._update_net_chart()
         self.spend_chart.set_segments(self.state.spending_last_month())
         self.cashflow_chart.set_rows(self.state.cashflow())
+        recent=sorted(self.state.transactions(),key=lambda tx:tx.posted,reverse=True)[:5]
+        fill_transaction_table(
+            self.recent_table,
+            recent,
+            account_labeler=self.state.account_display_name,
+        )
 
 
 class AccountsPage(QWidget):
@@ -155,6 +163,7 @@ class AccountsPage(QWidget):
             nickname=QLineEdit()
             nickname.setPlaceholderText("Optional nickname")
             nickname.setText(a.nickname or "")
+            nickname.setAlignment(Qt.AlignCenter)
             nickname.setMinimumHeight(38)
             nickname.editingFinished.connect(
                 lambda account_id=a.id, editor=nickname: self._save_nickname(account_id,editor)
@@ -162,8 +171,7 @@ class AccountsPage(QWidget):
             self.table.setCellWidget(r,0,nickname)
             vals=[a.name,a.kind,a.institution,"—" if a.available_balance is None else money(a.available_balance),money(a.current_balance)]
             for offset,val in enumerate(vals,1):
-                item=QTableWidgetItem(val)
-                if offset in (4,5): item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                item=_CenteredTableItem(val)
                 self.table.setItem(r,offset,item)
         self.table.verticalHeader().setDefaultSectionSize(44)
         header=self.table.horizontalHeader()
@@ -475,8 +483,7 @@ class StatementImportDialog(QDialog):
             display_target=self.state.account_display_name(target) if target else "—"
             vals=[row.posted.strftime("%b %d, %Y"),row.merchant,money(row.amount_cents/100),display_target]
             for c,val in enumerate(vals):
-                item=QTableWidgetItem(val)
-                if c==2: item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                item=_CenteredTableItem(val)
                 self.preview.setItem(r,c,item)
 
         suffix=f" · {skipped} skipped" if skipped else ""
@@ -503,30 +510,57 @@ class StatementImportDialog(QDialog):
 
 
 class NewBudgetDialog(QDialog):
-    def __init__(self, state, parent=None):
-        super().__init__(parent); self.state=state
-        self.setWindowTitle("New budget"); self.setObjectName("PasswordDialog")
+    def __init__(self, state, budget=None, parent=None):
+        super().__init__(parent); self.state=state; self.budget=budget; self.deleted=False
+        editing=budget is not None
+        self.setWindowTitle("Edit budget" if editing else "New budget")
+        self.setObjectName("PasswordDialog")
         l=QVBoxLayout(self); l.setContentsMargins(22,22,22,22); l.setSpacing(10)
-        title=QLabel("New budget"); title.setObjectName("SectionTitle"); l.addWidget(title)
+        title=QLabel("Edit budget" if editing else "New budget"); title.setObjectName("SectionTitle"); l.addWidget(title)
         self.category=_NoWheelComboBox(); self.category.setEditable(True)
         self.category.addItems(state.categories())
         self.limit=QDoubleSpinBox(); self.limit.setRange(0,100000000); self.limit.setDecimals(2); self.limit.setPrefix("$"); self.limit.setValue(500)
-        form=QGridLayout(); form.addWidget(QLabel("Category"),0,0); form.addWidget(self.category,0,1); form.addWidget(QLabel("Monthly limit"),1,0); form.addWidget(self.limit,1,1); l.addLayout(form)
-        buttons=QHBoxLayout(); buttons.addStretch()
+        if editing:
+            self.category.setCurrentText(budget.category)
+            self.limit.setValue(float(budget.limit))
+        form=QGridLayout()
+        form.addWidget(QLabel("Category"),0,0); form.addWidget(self.category,0,1)
+        form.addWidget(QLabel("Monthly limit"),1,0); form.addWidget(self.limit,1,1)
+        l.addLayout(form)
+
+        buttons=QHBoxLayout()
+        if editing:
+            delete=QPushButton("Delete budget"); delete.setObjectName("Danger"); delete.clicked.connect(self._delete)
+            buttons.addWidget(delete)
+        buttons.addStretch()
         cancel=QPushButton("Cancel"); cancel.setObjectName("Secondary"); cancel.clicked.connect(self.reject)
-        save=QPushButton("Save budget"); save.setObjectName("Primary"); save.clicked.connect(self.accept)
+        save=QPushButton("Save changes" if editing else "Save budget"); save.setObjectName("Primary"); save.clicked.connect(self.accept)
         buttons.addWidget(cancel); buttons.addWidget(save); l.addLayout(buttons)
+
+    def _delete(self):
+        answer=QMessageBox.question(
+            self,
+            "Delete budget",
+            f'Delete the "{self.budget.category}" budget?',
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        if answer==QMessageBox.Yes:
+            self.deleted=True
+            self.accept()
 
     def values(self):
         return self.category.currentText().strip(), float(self.limit.value())
 
 
 class NewGoalDialog(QDialog):
-    def __init__(self, state, parent=None):
-        super().__init__(parent); self.state=state
-        self.setWindowTitle("New monetary goal"); self.setObjectName("PasswordDialog")
+    def __init__(self, state, goal=None, parent=None):
+        super().__init__(parent); self.state=state; self.existing_goal=goal
+        editing=goal is not None
+        self.setWindowTitle("Edit monetary goal" if editing else "New monetary goal")
+        self.setObjectName("PasswordDialog")
         l=QVBoxLayout(self); l.setContentsMargins(22,22,22,22); l.setSpacing(10)
-        title=QLabel("New monetary goal"); title.setObjectName("SectionTitle"); l.addWidget(title)
+        title=QLabel("Edit monetary goal" if editing else "New monetary goal"); title.setObjectName("SectionTitle"); l.addWidget(title)
         note=QLabel("Build a rule such as: amount spent at Walmart over 1 month is less than $300.")
         note.setWordWrap(True); note.setStyleSheet(f"color:{theme.MUTED}"); l.addWidget(note)
 
@@ -550,11 +584,26 @@ class NewGoalDialog(QDialog):
             form.addWidget(QLabel(label),row,0); form.addWidget(widget,row,1)
         l.addLayout(form)
         self.scope_type.currentIndexChanged.connect(self._refresh_scope_values)
-        self._refresh_scope_values()
+
+        if editing:
+            for combo,value in (
+                (self.direction,goal.direction),
+                (self.scope_type,goal.scope_type),
+                (self.period_unit,goal.period_unit),
+                (self.operator,goal.operator),
+            ):
+                idx=combo.findData(value)
+                if idx>=0: combo.setCurrentIndex(idx)
+            self._refresh_scope_values()
+            self.scope_value.setEditText(goal.scope_value)
+            self.period_count.setValue(int(goal.period_count))
+            self.target.setValue(float(goal.target))
+        else:
+            self._refresh_scope_values()
 
         buttons=QHBoxLayout(); buttons.addStretch()
         cancel=QPushButton("Cancel"); cancel.setObjectName("Secondary"); cancel.clicked.connect(self.reject)
-        save=QPushButton("Save goal"); save.setObjectName("Primary"); save.clicked.connect(self._accept_if_valid)
+        save=QPushButton("Save changes" if editing else "Save goal"); save.setObjectName("Primary"); save.clicked.connect(self._accept_if_valid)
         buttons.addWidget(cancel); buttons.addWidget(save); l.addLayout(buttons)
 
     def _refresh_scope_values(self,*_):
@@ -571,13 +620,13 @@ class NewGoalDialog(QDialog):
 
     def _accept_if_valid(self):
         if not self.scope_value.currentText().strip():
-            QMessageBox.information(self,"New goal","Choose or enter a merchant, bank/account, or category.")
+            QMessageBox.information(self,"Goal","Choose or enter a merchant, bank/account, or category.")
             return
         self.accept()
 
     def goal(self):
         return Goal(
-            id=f"goal-{uuid.uuid4()}",
+            id=self.existing_goal.id if self.existing_goal is not None else f"goal-{uuid.uuid4()}",
             direction=self.direction.currentData(),
             scope_type=self.scope_type.currentData(),
             scope_value=self.scope_value.currentText().strip(),
@@ -616,18 +665,41 @@ class BudgetsPage(QWidget):
             if widget is not None: widget.deleteLater()
 
     def _new_budget(self):
-        dialog=NewBudgetDialog(self.state,self)
+        dialog=NewBudgetDialog(self.state,None,self)
         if dialog.exec()!=QDialog.Accepted: return
         category,limit=dialog.values()
         if category:
             self.state.set_budget(category,limit)
             self.refresh()
 
+    def _edit_budget(self, budget):
+        dialog=NewBudgetDialog(self.state,budget,self)
+        if dialog.exec()!=QDialog.Accepted:
+            return
+        if dialog.deleted:
+            self.state.delete_budget(budget.category)
+            self.refresh()
+            return
+        category,limit=dialog.values()
+        if not category:
+            return
+        if category.casefold()!=budget.category.casefold():
+            self.state.delete_budget(budget.category)
+        self.state.set_budget(category,limit)
+        self.refresh()
+
     def _new_goal(self):
-        dialog=NewGoalDialog(self.state,self)
+        dialog=NewGoalDialog(self.state,None,self)
         if dialog.exec()!=QDialog.Accepted: return
         self.state.add_goal(dialog.goal())
         self.refresh()
+
+    def _edit_goal(self, goal):
+        dialog=NewGoalDialog(self.state,goal,self)
+        if dialog.exec()!=QDialog.Accepted:
+            return
+        if self.state.update_goal(goal.id,dialog.goal()):
+            self.refresh()
 
     def _delete_goal(self, goal_id):
         if self.state.delete_goal(goal_id): self.refresh()
@@ -636,7 +708,13 @@ class BudgetsPage(QWidget):
         self._clear_after_heading(self.budget_layout)
         budgets=self.state.budgets()
         if budgets:
-            for row in budgets: self.budget_layout.addWidget(BudgetRow(row.category,row.spent,row.limit))
+            for row in budgets:
+                self.budget_layout.addWidget(
+                    BudgetRow(
+                        row.category,row.spent,row.limit,
+                        edit_callback=lambda budget=row:self._edit_budget(budget),
+                    )
+                )
         else:
             note=QLabel("No budgets yet."); note.setStyleSheet(f"color:{theme.MUTED}"); self.budget_layout.addWidget(note)
         self.budget_layout.addStretch()
@@ -654,9 +732,11 @@ class BudgetsPage(QWidget):
             rule.setWordWrap(True)
             actual=QLabel(f"Current: {money(status['actual'])}")
             actual.setStyleSheet(f"color:{theme.POSITIVE if status['met'] else theme.NEGATIVE};font-weight:700")
+            edit=QPushButton("Edit"); edit.setObjectName("Secondary"); edit.setFixedWidth(72)
+            edit.clicked.connect(lambda checked=False,g=goal:self._edit_goal(g))
             delete=QToolButton(); delete.setText("×"); delete.setToolTip("Delete goal")
             delete.clicked.connect(lambda checked=False,gid=goal.id:self._delete_goal(gid))
-            rl.addWidget(rule,1); rl.addWidget(actual); rl.addWidget(delete)
+            rl.addWidget(rule,1); rl.addWidget(actual); rl.addWidget(edit); rl.addWidget(delete)
             self.goal_layout.addWidget(row)
         self.goal_layout.addStretch()
 
@@ -721,12 +801,12 @@ class RecurringPage(QWidget):
             vals += [f"{x.cadence} · {x.next_date:%b %d}",money(x.amount),
                      row["first_seen"].strftime("%b %d, %Y"),money(row["total_amount"]),str(row["occurrences"])]
             for col,val in enumerate(vals):
-                item=QTableWidgetItem(val)
+                item=_CenteredTableItem(val)
                 item.setTextAlignment(Qt.AlignCenter)
                 table.setItem(r,col,item)
         if not rows:
             table.setRowCount(1)
-            item=QTableWidgetItem(empty_text); item.setTextAlignment(Qt.AlignCenter)
+            item=_CenteredTableItem(empty_text); item.setTextAlignment(Qt.AlignCenter)
             table.setItem(0,0,item); table.setSpan(0,0,1,table.columnCount())
 
     def refresh(self,*_):
@@ -1280,9 +1360,23 @@ class SettingsPage(QScrollArea):
         self.access_status.setText(access_text)
 
 
+class _CenteredItemDelegate(QStyledItemDelegate):
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option,index)
+        option.displayAlignment=Qt.AlignCenter
+
+
+class _CenteredTableItem(QTableWidgetItem):
+    def __init__(self, text=""):
+        super().__init__(str(text))
+        self.setTextAlignment(Qt.AlignCenter)
+
+
 def style_table(table):
     table.verticalHeader().setVisible(False); table.setShowGrid(False); table.setAlternatingRowColors(True)
     table.setSelectionBehavior(QAbstractItemView.SelectRows); table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+    table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
+    table.setItemDelegate(_CenteredItemDelegate(table))
 
 
 class _NoWheelComboBox(QComboBox):
@@ -1301,7 +1395,8 @@ def transaction_table(items, compact=False, category_callback=None, categories=N
         categories=categories,
     )
     if compact:
-        table.setMinimumHeight(230); table.setMaximumHeight(260)
+        table.verticalHeader().setDefaultSectionSize(24)
+        table.setMinimumHeight(155); table.setMaximumHeight(175)
     return table
 
 
@@ -1322,6 +1417,9 @@ def fill_transaction_table(
         for c,value in enumerate(values):
             if c == 2 and category_callback is not None:
                 combo=_NoWheelComboBox()
+                combo.setEditable(True)
+                combo.lineEdit().setReadOnly(True)
+                combo.lineEdit().setAlignment(Qt.AlignCenter)
                 choices=list(options)
                 if t.category and t.category not in choices:
                     choices.append(t.category)
@@ -1334,9 +1432,8 @@ def fill_transaction_table(
                 table.setCellWidget(r,c,combo)
                 continue
 
-            item=QTableWidgetItem(value)
+            item=_CenteredTableItem(value)
             if c==4:
-                item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
                 item.setForeground(
                     QColor(theme.POSITIVE if t.amount>=0 else theme.NEGATIVE)
                 )

@@ -111,6 +111,16 @@ class FinanceState:
             self._version += 1
             return budget
 
+    def delete_budget(self, category: str):
+        key=category.strip().casefold()
+        with self._lock:
+            before=len(self._budgets)
+            self._budgets=[b for b in self._budgets if b.category.casefold() != key]
+            if len(self._budgets) != before:
+                self._version += 1
+                return True
+            return False
+
     def goals(self):
         with self._lock:
             return list(self._goals)
@@ -120,6 +130,17 @@ class FinanceState:
             self._goals.append(goal)
             self._version += 1
             return goal
+
+    def update_goal(self, goal_id: str, updated: Goal):
+        with self._lock:
+            for index,goal in enumerate(self._goals):
+                if goal.id != goal_id:
+                    continue
+                updated.id=goal_id
+                self._goals[index]=updated
+                self._version += 1
+                return True
+            return False
 
     def delete_goal(self, goal_id: str):
         with self._lock:
