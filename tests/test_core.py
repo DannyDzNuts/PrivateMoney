@@ -3,7 +3,7 @@ import unittest
 import urllib.error
 import urllib.request
 from privatemoney.api import DashboardApiServer
-from privatemoney.plaid import PlaidBridge
+from privatemoney.plaid import PlaidBridge, PlaidError
 from privatemoney.state import FinanceState
 
 
@@ -15,7 +15,9 @@ class CoreTests(unittest.TestCase):
 
     def test_health(self):
         with urllib.request.urlopen(self.api.base_url+"/api/v1/health") as r:
-            self.assertEqual(json.load(r)["status"],"ok")
+            body=json.load(r)
+        self.assertEqual(body["status"],"ok")
+        self.assertEqual(body["version"],"0.3.0")
 
     def test_finance_requires_bearer(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
@@ -28,5 +30,30 @@ class CoreTests(unittest.TestCase):
             body=json.load(r)
         self.assertIn("net_worth",body); self.assertEqual(body["source"],"demo")
 
+
+
+    def test_plaid_refresh_then_sync(self):
+        bridge=PlaidBridge(FinanceState())
+        bridge._access_token="test-access-token"
+        calls=[]
+        bridge._request=lambda path,payload,timeout=45: calls.append((path,timeout)) or {}
+        bridge.sync=lambda: calls.append(("sync",None)) or {"accounts":0,"transactions":0}
+        result=bridge.refresh_and_sync()
+        self.assertEqual(calls[0],("/transactions/refresh",75))
+        self.assertEqual(calls[1],("sync",None))
+        self.assertEqual(result["transactions"],0)
+
+    def test_plaid_refresh_falls_back_when_product_unavailable(self):
+        bridge=PlaidBridge(FinanceState())
+        bridge._access_token="test-access-token"
+        calls=[]
+        def unavailable(path,payload,timeout=45):
+            calls.append((path,timeout))
+            raise PlaidError("PRODUCT_NOT_ENABLED: Transactions Refresh is not enabled")
+        bridge._request=unavailable
+        bridge.sync=lambda: calls.append(("sync",None)) or {"accounts":0,"transactions":0}
+        result=bridge.refresh_and_sync()
+        self.assertEqual(calls[-1],("sync",None))
+        self.assertEqual(result["accounts"],0)
 
 if __name__ == "__main__": unittest.main()

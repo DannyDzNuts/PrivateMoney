@@ -6,6 +6,7 @@ from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+from . import __version__
 
 
 def _money_rows(rows):
@@ -30,7 +31,7 @@ class DashboardApiServer:
         server_ref = self
 
         class Handler(BaseHTTPRequestHandler):
-            server_version = "PrivateMoneyAPI/0.2"
+            server_version = f"PrivateMoneyAPI/{__version__}"
 
             def log_message(self, fmt, *args):
                 return
@@ -82,7 +83,7 @@ class DashboardApiServer:
                 parsed = urlparse(self.path)
                 path = parsed.path.rstrip("/") or "/"
                 if path == "/api/v1/health":
-                    return self._json(200, {"status": "ok", "version": "0.2.0", "source": server_ref.state.source})
+                    return self._json(200, {"status": "ok", "version": __version__, "source": server_ref.state.source})
                 if path.startswith("/plaid/link/"):
                     nonce = path.rsplit("/", 1)[-1]
                     link_token = server_ref.plaid.link_token_for(nonce)
