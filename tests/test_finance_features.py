@@ -40,6 +40,45 @@ class FinanceFeatureTests(unittest.TestCase):
         )
         self.assertEqual(state.transactions()[0].category,"Dining")
 
+    def test_recurring_monthly_pattern_detection(self):
+        state=FinanceState()
+        transactions=[
+            Transaction(date(2026,4,5),"STREAMCO","Subscriptions","Checking",-14.99,False,"r1"),
+            Transaction(date(2026,5,5),"STREAMCO","Subscriptions","Checking",-14.99,False,"r2"),
+            Transaction(date(2026,6,4),"STREAMCO","Subscriptions","Checking",-14.99,False,"r3"),
+            Transaction(date(2026,7,5),"STREAMCO","Subscriptions","Checking",-14.99,False,"r4"),
+            Transaction(date(2026,8,5),"STREAMCO","Subscriptions","Checking",-15.49,False,"r5"),
+            Transaction(date(2026,9,4),"STREAMCO","Subscriptions","Checking",-14.99,False,"r6"),
+        ]
+        state.restore_snapshot({
+            "source":"plaid",
+            "accounts":[Account("a","Checking","checking","Bank",100.0,100.0,"1")],
+            "transactions":transactions,
+            "budgets":[],"recurring":[],"net_worth":[],"cashflow":[],
+        })
+        rows=state.recurring()
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0].cadence,"Monthly")
+        self.assertAlmostEqual(rows[0].amount,14.99,places=2)
+        self.assertEqual(state.summary()["recurring_count"],1)
+
+    def test_recurring_does_not_flag_irregular_spending(self):
+        state=FinanceState()
+        transactions=[
+            Transaction(date(2026,4,1),"COFFEE SHOP","Dining","Checking",-5.0,False,"c1"),
+            Transaction(date(2026,4,10),"COFFEE SHOP","Dining","Checking",-9.0,False,"c2"),
+            Transaction(date(2026,5,2),"COFFEE SHOP","Dining","Checking",-4.0,False,"c3"),
+            Transaction(date(2026,6,20),"COFFEE SHOP","Dining","Checking",-12.0,False,"c4"),
+            Transaction(date(2026,9,1),"COFFEE SHOP","Dining","Checking",-7.0,False,"c5"),
+        ]
+        state.restore_snapshot({
+            "source":"plaid",
+            "accounts":[Account("a","Checking","checking","Bank",100.0,100.0,"1")],
+            "transactions":transactions,
+            "budgets":[],"recurring":[],"net_worth":[],"cashflow":[],
+        })
+        self.assertEqual(state.recurring(),[])
+
     def test_spending_variance_compares_previous_month(self):
         today=date.today()
         previous_month_last=today.replace(day=1)-timedelta(days=1)

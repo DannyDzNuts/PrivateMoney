@@ -14,6 +14,16 @@ class NavigationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_overview_net_worth_duration_control(self):
+        window=MainWindow()
+        try:
+            dashboard=window.pages[0]
+            self.assertEqual(dashboard.net_duration.currentText(),"6M")
+            self.assertFalse(dashboard.net_chart.show_points)
+            self.assertTrue(dashboard.net_chart.hover_tooltip)
+        finally:
+            window.close()
+
     def test_page_navigation_clamps_and_updates_selection(self):
         window = MainWindow()
         try:

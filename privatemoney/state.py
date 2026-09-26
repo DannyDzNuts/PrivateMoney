@@ -1,10 +1,12 @@
 from __future__ import annotations
 import os
+import re
 import uuid
 from collections import defaultdict
-from datetime import date
+from statistics import median
+from datetime import date, timedelta
 from threading import RLock
-from .models import Account, Transaction
+from .models import Account, RecurringCharge, Transaction
 from .importers import external_id_for
 from .sample_data import ACCOUNTS, BUDGETS, CASHFLOW, NET_WORTH, RECURRING, SPENDING, TRANSACTIONS
 
@@ -69,6 +71,13 @@ class FinanceState:
         with self._lock:
             return list(self._spending)
 
+    def spending_last_month(self):
+        with self._lock:
+            today = date.today()
+            year = today.year if today.month > 1 else today.year - 1
+            month = today.month - 1 if today.month > 1 else 12
+            return self._derive_spending_for_month(self._transactions, year, month)
+
     def cashflow(self):
         with self._lock:
             return list(self._cashflow)
@@ -101,6 +110,7 @@ class FinanceState:
                 "previous_month_spending": round(previous_month_spending, 2),
                 "spending_variance": round(spending_variance, 2),
                 "upcoming_recurring": round(upcoming, 2),
+                "recurring_count": len(self._recurring),
                 "account_count": len(self._accounts),
                 "transaction_count": len(txs),
             }
@@ -138,6 +148,7 @@ class FinanceState:
                 return False
             target.category = category
             self._spending = self._derive_spending(self._transactions)
+            self._recurring = self._derive_recurring(self._transactions)
             self._version += 1
             return True
 
@@ -210,6 +221,7 @@ class FinanceState:
             self._transactions.sort(key=lambda x: x.posted, reverse=True)
             self._spending = self._derive_spending(self._transactions)
             self._cashflow = self._derive_cashflow(self._transactions)
+            self._recurring = self._derive_recurring(self._transactions)
             if not self._net_worth:
                 self._net_worth = [(
                     "Now",
@@ -239,7 +251,12 @@ class FinanceState:
                 reverse=True,
             )
             self._budgets = list(snapshot.get("budgets") or [])
-            self._recurring = list(snapshot.get("recurring") or [])
+            saved_recurring = list(snapshot.get("recurring") or [])
+            self._recurring = (
+                self._derive_recurring(self._transactions)
+                if self._transactions
+                else saved_recurring
+            )
             self._net_worth = list(snapshot.get("net_worth") or [])
             self._spending = self._derive_spending(self._transactions)
             self._cashflow = list(snapshot.get("cashflow") or [])
@@ -290,7 +307,7 @@ class FinanceState:
             self._transactions = sorted(
                 tx_map.values(), key=lambda x: x.posted, reverse=True
             )
-            self._recurring = []
+            self._recurring = self._derive_recurring(self._transactions)
             self._net_worth = [(
                 "Now",
                 round(sum(a.current_balance for a in self._accounts), 2),
@@ -333,6 +350,132 @@ class FinanceState:
             if t.amount < 0 and t.posted.year == latest.year and t.posted.month == latest.month:
                 totals[t.category or "Other"] += -t.amount
         return sorted(((k, round(v, 2)) for k, v in totals.items()), key=lambda x: x[1], reverse=True)[:6]
+
+    @staticmethod
+    def _derive_spending_for_month(
+        transactions: list[Transaction],
+        year: int,
+        month: int,
+    ):
+        totals = defaultdict(float)
+        for tx in transactions:
+            if (
+                tx.amount < 0
+                and tx.posted.year == year
+                and tx.posted.month == month
+            ):
+                totals[tx.category or "Other"] += -tx.amount
+        return sorted(
+            ((category, round(value, 2)) for category, value in totals.items()),
+            key=lambda item: item[1],
+            reverse=True,
+        )[:8]
+
+    @staticmethod
+    def _recurring_merchant_key(value: str) -> str:
+        text = value.casefold()
+        text = re.sub(
+            r"\b(pos|purchase|debit|card|payment|pmt|online|ach|recurring)\b",
+            " ",
+            text,
+        )
+        text = re.sub(r"\b\d{4,}\b", " ", text)
+        text = re.sub(r"[^a-z0-9]+", " ", text)
+        return " ".join(text.split())
+
+    @classmethod
+    def _derive_recurring(cls, transactions: list[Transaction]):
+        groups = defaultdict(list)
+        for tx in transactions:
+            if tx.pending or tx.amount >= 0:
+                continue
+            key = cls._recurring_merchant_key(tx.merchant)
+            if not key:
+                continue
+            groups[key].append(tx)
+
+        patterns = []
+        cadence_rules = (
+            ("Weekly", 7, 5, 9, 4, 2),
+            ("Every 2 weeks", 14, 11, 17, 4, 3),
+            ("Monthly", 30, 25, 35, 3, 5),
+            ("Quarterly", 91, 75, 105, 3, 12),
+            ("Yearly", 365, 330, 400, 2, 25),
+        )
+
+        for rows in groups.values():
+            rows = sorted(rows, key=lambda tx: tx.posted)
+            unique_dates = []
+            for tx in rows:
+                if not unique_dates or unique_dates[-1].posted != tx.posted:
+                    unique_dates.append(tx)
+            if len(unique_dates) < 2:
+                continue
+
+            intervals = [
+                (right.posted - left.posted).days
+                for left, right in zip(unique_dates, unique_dates[1:])
+                if right.posted > left.posted
+            ]
+            if not intervals:
+                continue
+
+            typical_gap = median(intervals)
+            cadence = None
+            cadence_days = None
+            tolerance = None
+            minimum_occurrences = None
+            for (
+                label,
+                expected,
+                low,
+                high,
+                minimum,
+                allowed_error,
+            ) in cadence_rules:
+                if low <= typical_gap <= high:
+                    cadence = label
+                    cadence_days = int(round(typical_gap or expected))
+                    tolerance = allowed_error
+                    minimum_occurrences = minimum
+                    break
+            if cadence is None or len(unique_dates) < minimum_occurrences:
+                continue
+
+            if max(abs(gap - typical_gap) for gap in intervals) > tolerance:
+                continue
+
+            charges = [abs(tx.amount) for tx in unique_dates[-6:]]
+            typical_amount = float(median(charges))
+            if typical_amount <= 0:
+                continue
+
+            # Require broadly similar charges for frequent merchant visits,
+            # while allowing utilities/subscriptions to vary modestly.
+            max_deviation = max(abs(amount - typical_amount) for amount in charges)
+            allowed_amount_deviation = max(5.0, typical_amount * 0.35)
+            if max_deviation > allowed_amount_deviation and cadence in {
+                "Weekly",
+                "Every 2 weeks",
+            }:
+                continue
+
+            latest = unique_dates[-1]
+            next_date = latest.posted + timedelta(days=cadence_days)
+            while next_date < date.today():
+                next_date += timedelta(days=cadence_days)
+
+            patterns.append(
+                RecurringCharge(
+                    merchant=latest.merchant,
+                    amount=round(typical_amount, 2),
+                    cadence=cadence,
+                    next_date=next_date,
+                    category=latest.category or "Other",
+                )
+            )
+
+        return sorted(patterns, key=lambda charge: charge.next_date)
 
     @staticmethod
     def _derive_cashflow(transactions: list[Transaction]):

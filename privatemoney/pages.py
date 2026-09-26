@@ -1,5 +1,6 @@
 from __future__ import annotations
 import threading
+from datetime import date, timedelta
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
@@ -21,9 +22,19 @@ def page_header(title: str, subtitle: str):
     return w
 
 
-def card_with_title(title: str, child: QWidget, subtitle: str = "") -> Card:
+def card_with_title(
+    title: str,
+    child: QWidget,
+    subtitle: str = "",
+    action: QWidget | None = None,
+) -> Card:
     card=Card(); l=QVBoxLayout(card); l.setContentsMargins(18,16,18,16); l.setSpacing(8)
-    t=QLabel(title); t.setObjectName("SectionTitle"); l.addWidget(t)
+    header=QHBoxLayout()
+    t=QLabel(title); t.setObjectName("SectionTitle"); header.addWidget(t)
+    header.addStretch()
+    if action is not None:
+        header.addWidget(action)
+    l.addLayout(header)
     if subtitle:
         s=QLabel(subtitle); s.setStyleSheet(f"color:{theme.MUTED}"); l.addWidget(s)
     l.addWidget(child,1)
@@ -38,16 +49,30 @@ class DashboardPage(QWidget):
         metrics=QGridLayout(); metrics.setSpacing(14)
         self.net_card=MetricCard("Net worth", "$0.00")
         self.cash_card=MetricCard("Cash available", "$0.00")
-        self.spend_card=MetricCard("This month spending", "$0.00")
+        self.spend_card=MetricCard("This Month's Spending", "$0.00")
         self.recurring_card=MetricCard("Upcoming recurring", "$0.00")
         for i,w in enumerate([self.net_card,self.cash_card,self.spend_card,self.recurring_card]): metrics.addWidget(w,0,i)
         l.addLayout(metrics)
         grid=QGridLayout(); grid.setSpacing(14)
-        self.net_chart=LineChart(state.net_worth())
-        self.spend_chart=DonutChart(state.spending())
+        self.net_duration=QComboBox()
+        self.net_duration.setObjectName("ChartDuration")
+        self.net_duration.addItem("1M",30)
+        self.net_duration.addItem("3M",90)
+        self.net_duration.addItem("6M",180)
+        self.net_duration.addItem("1Y",365)
+        self.net_duration.addItem("All",None)
+        self.net_duration.setCurrentIndex(2)
+        self.net_duration.setMinimumWidth(76)
+
+        self.net_chart=LineChart([],show_points=False,hover_tooltip=True)
+        self.net_duration.currentIndexChanged.connect(self._update_net_chart)
+        self.spend_chart=DonutChart(state.spending_last_month())
         self.cashflow_chart=CashFlowChart(state.cashflow())
-        grid.addWidget(card_with_title("Net worth", self.net_chart, "Recent trend"),0,0,1,2)
-        grid.addWidget(card_with_title("Spending mix", self.spend_chart, "Latest month"),0,2)
+        grid.addWidget(
+            card_with_title("Net worth",self.net_chart,"Recent trend",action=self.net_duration),
+            0,0,1,2
+        )
+        grid.addWidget(card_with_title("Categories",self.spend_chart,"Last month"),0,2)
         grid.addWidget(card_with_title("Cash flow", self.cashflow_chart, "Income vs. spending"),1,0,1,2)
         budgets=QWidget(); budgets.setStyleSheet("background:transparent;"); bl=QVBoxLayout(budgets); bl.setContentsMargins(0,0,0,0); bl.setSpacing(2)
         for b in state.budgets(): bl.addWidget(BudgetRow(b.category,b.spent,b.limit))
@@ -57,19 +82,40 @@ class DashboardPage(QWidget):
         l.addLayout(grid,1)
         self.refresh()
 
+    def _overview_net_points(self):
+        points=self.state.net_worth()
+        days=self.net_duration.currentData()
+        if days is None or not points:
+            return points
+        parsed=[]
+        for label,value in points:
+            try:
+                parsed.append((date.fromisoformat(str(label)),label,value))
+            except ValueError:
+                return points
+        latest=max(row[0] for row in parsed)
+        cutoff=latest-timedelta(days=int(days))
+        filtered=[(label,value) for posted,label,value in parsed if posted >= cutoff]
+        return filtered or [points[-1]]
+
+    def _update_net_chart(self, *_):
+        self.net_chart.set_points(self._overview_net_points())
+
     def refresh(self):
         s=self.state.summary()
-        live=s["source"]=="plaid"
         self.net_card.set_value(money(s["net_worth"])); self.net_card.set_delta("Across tracked accounts", True)
         self.cash_card.set_value(money(s["cash_available"])); self.cash_card.set_delta(f"{s['account_count']} accounts", True)
         self.spend_card.set_value(money(s["month_spending"]))
         variance=s["spending_variance"]
         sign="+" if variance > 0 else ("-" if variance < 0 else "")
-        variance_text="Variance: " + sign + "$" + f"{abs(variance):,.2f}" + " vs last month"
+        variance_text=sign + "$" + f"{abs(variance):,.2f}" + " vs last month"
         self.spend_card.set_delta(variance_text, variance <= 0)
-        self.recurring_card.set_value(money(-s["upcoming_recurring"])); self.recurring_card.set_delta("Pattern detection pending" if live else "Upcoming scheduled charges", True)
-        self.net_chart.set_points(self.state.net_worth())
-        self.spend_chart.set_segments(self.state.spending())
+        recurring_count=s["recurring_count"]
+        self.recurring_card.set_value(money(-s["upcoming_recurring"]))
+        pattern_text=(f"{recurring_count} detected pattern" + ("s" if recurring_count != 1 else "")) if recurring_count else "No recurring patterns detected"
+        self.recurring_card.set_delta(pattern_text, True)
+        self._update_net_chart()
+        self.spend_chart.set_segments(self.state.spending_last_month())
         self.cashflow_chart.set_rows(self.state.cashflow())
 
 
@@ -471,7 +517,7 @@ class RecurringPage(QWidget):
             vals=[x.merchant,x.category,f"{x.cadence} · {x.next_date:%b %d}",money(-x.amount)]
             for c,val in enumerate(vals): self.table.setItem(r,c,QTableWidgetItem(val))
         if not rows:
-            self.table.setRowCount(1); self.table.setItem(0,0,QTableWidgetItem("Recurring detection will run after enough live transaction history is available.")); self.table.setSpan(0,0,1,4)
+            self.table.setRowCount(1); self.table.setItem(0,0,QTableWidgetItem("No recurring transaction patterns were detected in the available history.")); self.table.setSpan(0,0,1,4)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
 

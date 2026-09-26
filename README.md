@@ -18,6 +18,18 @@ PrivateMoney now includes an encrypted SQLCipher vault for local persistence. Th
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.8
+
+- Overview net-worth duration control: 1M, 3M, 6M, 1Y, or All
+- Overview net-worth line hides point dots and shows nearest transaction-date value on hover
+- Overview category card renamed to **Categories · Last month**
+- Category spending visualization is now an exploded full-slice pie chart
+- Cash-flow bars show dollar values directly inside the income/spending bars
+- **This Month's Spending** variance tagline no longer includes a redundant "Variance:" prefix
+- Local recurring-pattern detection for weekly, biweekly, monthly, quarterly, and annual outgoing charges
+- Recurring detection recomputes after Plaid sync, imports, restore, and category changes
+- Existing vaults prompt for login when PrivateMoney starts
+
 ## Added in 0.7
 
 - Net-worth history is reconstructed immediately from current balances and transaction dates

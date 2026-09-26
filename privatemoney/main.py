@@ -346,8 +346,11 @@ class MainWindow(QMainWindow):
         self._timer.start(1250)
         self._refresh()
 
-        if not self.vault.exists and os.environ.get("PRIVATE_MONEY_TESTING") != "1":
-            QTimer.singleShot(0, self._prompt_create_password)
+        if os.environ.get("PRIVATE_MONEY_TESTING") != "1":
+            if self.vault.exists:
+                QTimer.singleShot(0, self._prompt_unlock)
+            else:
+                QTimer.singleShot(0, self._prompt_create_password)
 
     def _topbar(self):
         bar = QFrame()
