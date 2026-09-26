@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS accounts (
     institution TEXT NOT NULL DEFAULT '',
     current_balance_cents INTEGER NOT NULL DEFAULT 0,
     available_balance_cents INTEGER,
-    mask TEXT
+    mask TEXT,
+    nickname TEXT
 );
 
 CREATE TABLE IF NOT EXISTS transactions (
@@ -140,6 +141,11 @@ class EncryptedStore:
             self.conn.execute("PRAGMA foreign_keys = ON;")
             # Any schema access here also validates an existing vault key.
             self.conn.executescript(SCHEMA)
+            account_columns = {
+                row[1] for row in self.conn.execute("PRAGMA table_info(accounts)")
+            }
+            if "nickname" not in account_columns:
+                self.conn.execute("ALTER TABLE accounts ADD COLUMN nickname TEXT")
             self.conn.commit()
             try:
                 self.path.chmod(0o600)
@@ -189,8 +195,8 @@ class EncryptedStore:
                 """
                 INSERT INTO accounts(
                     id,name,kind,institution,current_balance_cents,
-                    available_balance_cents,mask
-                ) VALUES(?,?,?,?,?,?,?)
+                    available_balance_cents,mask,nickname
+                ) VALUES(?,?,?,?,?,?,?,?)
                 """,
                 [
                     (
@@ -201,6 +207,7 @@ class EncryptedStore:
                         _cents(a.current_balance),
                         _cents(a.available_balance),
                         a.mask,
+                        a.nickname,
                     )
                     for a in accounts
                 ],
@@ -281,11 +288,12 @@ class EncryptedStore:
                 current_balance=_money(row[4]) or 0.0,
                 available_balance=_money(row[5]),
                 mask=row[6],
+                nickname=row[7],
             )
             for row in self.conn.execute(
                 """
                 SELECT id,name,kind,institution,current_balance_cents,
-                       available_balance_cents,mask
+                       available_balance_cents,mask,nickname
                 FROM accounts ORDER BY rowid
                 """
             )
