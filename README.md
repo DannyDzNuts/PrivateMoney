@@ -18,6 +18,14 @@ PrivateMoney now includes an encrypted SQLCipher vault for local persistence. Th
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.15
+
+- Removed the redundant **Latest 5** subtitle from Overview Recent Transactions
+- Recent Transactions now reserves exactly five rows and disables internal scrollbars
+- Active tab title and tagline moved into the global top bar beside the vault login/logout control
+- Page bodies no longer repeat their title/tagline, freeing vertical space for content
+- Main window now grows to the active page's preferred size and maximizes when that size approaches the usable screen boundary
+
 ## Added in 0.14
 
 - Centered standard table text and headers across PrivateMoney, including transaction/account/recurring/import tables

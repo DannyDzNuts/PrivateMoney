@@ -47,7 +47,6 @@ class DashboardPage(QWidget):
     def __init__(self, state, parent=None):
         super().__init__(parent); self.state=state
         l=QVBoxLayout(self); l.setContentsMargins(28,20,28,22); l.setSpacing(14)
-        l.addWidget(page_header("Overview", "A private snapshot of your money."))
         metrics=QGridLayout(); metrics.setSpacing(14)
         self.net_card=MetricCard("Net worth", "$0.00")
         self.cash_card=MetricCard("Cash available", "$0.00")
@@ -90,7 +89,7 @@ class DashboardPage(QWidget):
         grid.setRowStretch(0,1); grid.setRowStretch(1,1)
         l.addLayout(grid,1)
         self.recent_table=transaction_table([],compact=True)
-        l.addWidget(card_with_title("Recent transactions",self.recent_table,"Latest 5"))
+        l.addWidget(card_with_title("Recent transactions",self.recent_table))
         self.refresh()
 
     def _overview_net_points(self):
@@ -149,7 +148,6 @@ class AccountsPage(QWidget):
     def __init__(self, state, parent=None):
         super().__init__(parent); self.state=state
         l=QVBoxLayout(self); l.setContentsMargins(28,24,28,28); l.setSpacing(16)
-        l.addWidget(page_header("Accounts", "Balances across your accounts."))
         self.table=QTableWidget(0,6)
         self.table.setHorizontalHeaderLabels(["Nickname","Account","Type","Institution","Available","Current"])
         style_table(self.table); l.addWidget(self.table,1); self.refresh()
@@ -642,7 +640,6 @@ class BudgetsPage(QWidget):
         super().__init__(parent); self.state=state
         l=QVBoxLayout(self); l.setContentsMargins(28,24,28,28); l.setSpacing(16)
         top=QHBoxLayout()
-        top.addWidget(page_header("Budgets & Goals","Monthly category budgets and flexible monetary goals."))
         top.addStretch()
         self.new_budget=QPushButton("New budget"); self.new_budget.setObjectName("Secondary"); self.new_budget.clicked.connect(self._new_budget)
         self.new_goal=QPushButton("New goal"); self.new_goal.setObjectName("Primary"); self.new_goal.clicked.connect(self._new_goal)
@@ -755,7 +752,6 @@ class RecurringPage(QWidget):
         super().__init__(parent); self.state=state
         l=QVBoxLayout(self); l.setContentsMargins(28,24,28,28); l.setSpacing(14)
         top=QHBoxLayout()
-        top.addWidget(page_header("Recurring","Detected repeating spending and income."))
         top.addStretch(); top.addWidget(QLabel("Sort"))
         self.sort=_NoWheelComboBox()
         for label,key in self.SORTS: self.sort.addItem(label,key)
@@ -819,7 +815,6 @@ class NetWorthPage(QWidget):
     def __init__(self, state, parent=None):
         super().__init__(parent); self.state=state
         l=QVBoxLayout(self); l.setContentsMargins(28,24,28,28); l.setSpacing(16)
-        l.addWidget(page_header("Net worth","Assets minus liabilities, tracked over time."))
         self.chart=LineChart(state.net_worth()); l.addWidget(card_with_title("Net worth history",self.chart,"Reconstructed from transaction dates"),1)
     def refresh(self): self.chart.set_points(self.state.net_worth())
 
@@ -954,7 +949,6 @@ class TransactionsPage(QWidget):
         l=QVBoxLayout(self); l.setContentsMargins(28,20,28,24); l.setSpacing(12)
 
         top=QHBoxLayout()
-        top.addWidget(page_header("Transactions","Filter, review, categorize, and analyze tracked activity."))
         top.addStretch()
         self.bulk_btn=QPushButton("Bulk categorize")
         self.bulk_btn.setObjectName("Secondary")
@@ -1217,7 +1211,6 @@ class SettingsPage(QScrollArea):
         super().__init__(parent); self.state=state; self.api_server=api_server; self.plaid=plaid; self.api_token=api_token; self.vault=vault; self.on_logout=on_logout; self.on_login=on_login; self.on_delete_data=on_delete_data; self._vault_error=''
         self.setWidgetResizable(True); self.setFrameShape(QFrame.NoFrame)
         host=QWidget(); self.setWidget(host); l=QVBoxLayout(host); l.setContentsMargins(28,24,28,28); l.setSpacing(16)
-        l.addWidget(page_header("Settings","Private by default; external access must be explicitly configured."))
 
         access=Card(); alog=QVBoxLayout(access); alog.setContentsMargins(20,18,20,18); alog.setSpacing(9)
         ah=QLabel("Access"); ah.setObjectName("SectionTitle"); alog.addWidget(ah)
@@ -1395,8 +1388,13 @@ def transaction_table(items, compact=False, category_callback=None, categories=N
         categories=categories,
     )
     if compact:
-        table.verticalHeader().setDefaultSectionSize(24)
-        table.setMinimumHeight(155); table.setMaximumHeight(175)
+        row_height=26
+        header_height=28
+        table.verticalHeader().setDefaultSectionSize(row_height)
+        table.horizontalHeader().setFixedHeight(header_height)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        table.setFixedHeight(header_height + row_height * 5 + 6)
     return table
 
 

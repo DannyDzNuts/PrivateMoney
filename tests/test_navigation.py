@@ -73,8 +73,24 @@ class NavigationTests(unittest.TestCase):
             self.assertEqual(page.recent_table.rowCount(),5)
             self.assertEqual(page.recent_table.item(0,1).text(),"Merchant 0")
             self.assertEqual(page.recent_table.item(0,0).textAlignment(),int(Qt.AlignCenter))
+            self.assertEqual(page.recent_table.verticalScrollBarPolicy(),Qt.ScrollBarAlwaysOff)
+            self.assertEqual(page.recent_table.horizontalScrollBarPolicy(),Qt.ScrollBarAlwaysOff)
         finally:
             page.deleteLater()
+
+    def test_topbar_tracks_active_page(self):
+        window=MainWindow()
+        try:
+            self.assertEqual(window.top_page_title.text(),"Overview")
+            self.assertEqual(window.top_page_subtitle.text(),"A private snapshot of your money.")
+            window._set_page(2)
+            self.assertEqual(window.top_page_title.text(),"Budgets & Goals")
+            self.assertEqual(
+                window.top_page_subtitle.text(),
+                "Monthly category budgets and flexible monetary goals.",
+            )
+        finally:
+            window.close()
 
     def test_page_navigation_clamps_and_updates_selection(self):
         window = MainWindow()

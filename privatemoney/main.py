@@ -305,6 +305,14 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(app_icon())
         self.resize(1440, 900)
         self.setMinimumSize(1100, 720)
+        self.page_headers = [
+            ("Overview", "A private snapshot of your money."),
+            ("Accounts", "Balances across your accounts."),
+            ("Budgets & Goals", "Monthly category budgets and flexible monetary goals."),
+            ("Recurring", "Detected repeating spending and income."),
+            ("Transactions", "Filter, review, categorize, and analyze tracked activity."),
+            ("Settings", "Private by default; external access must be explicitly configured."),
+        ]
 
         self.state = FinanceState()
         self.vault = VaultManager()
@@ -366,9 +374,22 @@ class MainWindow(QMainWindow):
     def _topbar(self):
         bar = QFrame()
         bar.setObjectName("TopBar")
-        bar.setFixedHeight(54)
+        bar.setFixedHeight(72)
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(18, 8, 18, 8)
+        layout.setContentsMargins(20, 8, 18, 8)
+
+        heading = QWidget()
+        heading.setStyleSheet("background:transparent;")
+        heading_layout = QVBoxLayout(heading)
+        heading_layout.setContentsMargins(0, 0, 0, 0)
+        heading_layout.setSpacing(1)
+        self.top_page_title = QLabel()
+        self.top_page_title.setObjectName("PageTitle")
+        self.top_page_subtitle = QLabel()
+        self.top_page_subtitle.setObjectName("PageSubtitle")
+        heading_layout.addWidget(self.top_page_title)
+        heading_layout.addWidget(self.top_page_subtitle)
+        layout.addWidget(heading)
         layout.addStretch()
 
         self.lock_button = VaultToggleButton()
@@ -435,6 +456,42 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(index)
         if 0 <= index < len(self.nav_buttons):
             self.nav_buttons[index].setChecked(True)
+        if 0 <= index < len(self.page_headers):
+            title, subtitle = self.page_headers[index]
+            self.top_page_title.setText(title)
+            self.top_page_subtitle.setText(subtitle)
+        QTimer.singleShot(0, self._fit_window_to_content)
+
+    def _fit_window_to_content(self):
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None or self.centralWidget() is None:
+            return
+
+        layout = self.centralWidget().layout()
+        if layout is not None:
+            layout.activate()
+
+        available = screen.availableGeometry()
+        hint = self.centralWidget().sizeHint()
+        desired_width = max(1440, hint.width() + 24)
+        desired_height = max(900, hint.height() + 24)
+
+        if (
+            desired_width >= available.width() - 24
+            or desired_height >= available.height() - 24
+        ):
+            self.setWindowState(self.windowState() | Qt.WindowMaximized)
+            return
+
+        target_width = max(self.width(), min(desired_width, available.width()))
+        target_height = max(self.height(), min(desired_height, available.height()))
+        if target_width == self.width() and target_height == self.height():
+            return
+
+        self.resize(target_width, target_height)
+        frame = self.frameGeometry()
+        frame.moveCenter(available.center())
+        self.move(frame.topLeft())
 
     def _move_page(self, direction: int):
         if not hasattr(self, "stack"):
