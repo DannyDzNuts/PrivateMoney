@@ -28,7 +28,6 @@ from .pages import (
     AccountsPage,
     BudgetsPage,
     DashboardPage,
-    NetWorthPage,
     RecurringPage,
     ReportsPage,
     SettingsPage,
@@ -321,7 +320,6 @@ class MainWindow(QMainWindow):
             TransactionsPage(self.state, self.vault),
             BudgetsPage(self.state),
             RecurringPage(self.state),
-            NetWorthPage(self.state),
             ReportsPage(self.state),
             SettingsPage(
                 self.state,
@@ -390,7 +388,6 @@ class MainWindow(QMainWindow):
             ("Transactions", "↕"),
             ("Budgets", "◫"),
             ("Recurring", "↻"),
-            ("Net worth", "⌁"),
             ("Reports", "⌗"),
             ("Settings", "⚙"),
         ]
