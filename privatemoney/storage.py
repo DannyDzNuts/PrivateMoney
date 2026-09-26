@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -381,6 +382,22 @@ class EncryptedStore:
                 ),
             )
 
+    def save_import_profile(self, signature: str, profile: dict[str, Any]):
+        self.set_metadata(
+            f"import_profile:{signature}",
+            json.dumps(profile, sort_keys=True, separators=(",", ":")),
+        )
+
+    def load_import_profile(self, signature: str) -> dict[str, Any] | None:
+        raw = self.get_metadata(f"import_profile:{signature}")
+        if not raw:
+            return None
+        try:
+            value = json.loads(raw)
+            return value if isinstance(value, dict) else None
+        except json.JSONDecodeError:
+            return None
+
     def load_plaid_session(self) -> dict[str, Any] | None:
         row = self.conn.execute(
             """
@@ -493,6 +510,16 @@ class VaultManager:
         if self.store is not None:
             self.store.close()
             self.store = None
+
+    def save_import_profile(self, signature: str, profile: dict[str, Any]):
+        if not self.store:
+            raise VaultError("PrivateMoney is locked.")
+        self.store.save_import_profile(signature, profile)
+
+    def load_import_profile(self, signature: str) -> dict[str, Any] | None:
+        if not self.store:
+            return None
+        return self.store.load_import_profile(signature)
 
     def save_runtime(self, state, plaid):
         if not self.store:

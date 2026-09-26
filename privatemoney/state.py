@@ -94,50 +94,71 @@ class FinanceState:
                 "transaction_count": len(txs),
             }
 
-    def import_transactions(self, account_name: str, rows) -> dict:
+    def import_transactions(self, account_name: str, rows, use_account_column: bool = False) -> dict:
         account_name = account_name.strip()
-        if not account_name:
+        if not account_name and not use_account_column:
             raise ValueError("Account name is required.")
 
         with self._lock:
-            account = next(
-                (a for a in self._accounts if a.name.casefold() == account_name.casefold()),
-                None,
-            )
-            created_account = account is None
-            if account is None:
-                account = Account(
-                    id=f"local-{uuid.uuid4()}",
-                    name=account_name,
-                    kind="checking",
-                    institution="Imported",
-                    current_balance=0.0,
-                    available_balance=None,
-                    mask=None,
-                )
-                self._accounts.append(account)
-
             existing_ids = {t.external_id for t in self._transactions if t.external_id}
+            accounts_by_name = {a.name.casefold(): a for a in self._accounts}
+            latest_balances = {}
             imported = 0
             duplicates = 0
+            created = 0
+
             for row in rows:
+                target_name = (
+                    (row.account_hint or "").strip()
+                    if use_account_column
+                    else account_name
+                )
+                if not target_name:
+                    target_name = account_name
+                if not target_name:
+                    raise ValueError("One or more rows do not contain an account value.")
+
+                key = target_name.casefold()
+                account = accounts_by_name.get(key)
+                if account is None:
+                    account = Account(
+                        id=f"local-{uuid.uuid4()}",
+                        name=target_name,
+                        kind="checking",
+                        institution="Imported",
+                        current_balance=0.0,
+                        available_balance=None,
+                        mask=None,
+                    )
+                    self._accounts.append(account)
+                    accounts_by_name[key] = account
+                    created += 1
+
                 external_id = external_id_for(account.name, row)
                 if external_id in existing_ids:
                     duplicates += 1
-                    continue
-                self._transactions.append(
-                    Transaction(
-                        posted=row.posted,
-                        merchant=row.merchant,
-                        category="Other",
-                        account=account.name,
-                        amount=round(row.amount_cents / 100.0, 2),
-                        pending=False,
-                        external_id=external_id,
+                else:
+                    self._transactions.append(
+                        Transaction(
+                            posted=row.posted,
+                            merchant=row.merchant,
+                            category="Other",
+                            account=account.name,
+                            amount=round(row.amount_cents / 100.0, 2),
+                            pending=False,
+                            external_id=external_id,
+                        )
                     )
-                )
-                existing_ids.add(external_id)
-                imported += 1
+                    existing_ids.add(external_id)
+                    imported += 1
+
+                if row.balance_cents is not None:
+                    previous = latest_balances.get(key)
+                    if previous is None or row.posted > previous[0]:
+                        latest_balances[key] = (row.posted, row.balance_cents, account)
+
+            for _, balance_cents, account in latest_balances.values():
+                account.current_balance = round(balance_cents / 100.0, 2)
 
             self._transactions.sort(key=lambda x: x.posted, reverse=True)
             self._spending = self._derive_spending(self._transactions)
@@ -147,9 +168,19 @@ class FinanceState:
                     "Now",
                     round(sum(a.current_balance for a in self._accounts), 2),
                 )]
-            if imported or created_account:
+            elif latest_balances:
+                self._net_worth = [(
+                    "Now",
+                    round(sum(a.current_balance for a in self._accounts), 2),
+                )]
+
+            if imported or created or latest_balances:
                 self._version += 1
-            return {"imported": imported, "duplicates": duplicates, "account": account.name}
+            return {
+                "imported": imported,
+                "duplicates": duplicates,
+                "accounts_created": created,
+            }
 
     def restore_snapshot(self, snapshot: dict):
         with self._lock:

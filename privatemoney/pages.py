@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget
 )
 from .charts import CashFlowChart, DonutChart, LineChart
-from .importers import AMOUNT_CANDIDATES, DATE_CANDIDATES, DESCRIPTION_CANDIDATES, guess_column, parse_csv, parse_ofx, read_csv_headers
+from .importers import (ACCOUNT_CANDIDATES, AMOUNT_CANDIDATES, BALANCE_CANDIDATES, CREDIT_CANDIDATES, DATE_CANDIDATES, DEBIT_CANDIDATES, DESCRIPTION_CANDIDATES, csv_header_signature, guess_column, parse_csv, parse_ofx, read_csv_headers)
 from .widgets import BudgetRow, Card, MetricCard, money
 from . import theme
 
@@ -90,6 +90,8 @@ class AccountsPage(QWidget):
 
 
 class StatementImportDialog(QDialog):
+    NOT_SET = "Not set"
+
     def __init__(self, state, vault, parent=None):
         super().__init__(parent)
         self.state=state
@@ -97,233 +99,276 @@ class StatementImportDialog(QDialog):
         self.rows=[]
         self.skipped=0
         self.file_type=""
+        self.headers=[]
+        self.header_signature=None
         self.setWindowTitle("Import statement")
         self.setObjectName("PasswordDialog")
-        self.resize(760,560)
+        self.resize(800,650)
 
-        l=QVBoxLayout(self)
-        l.setContentsMargins(22,22,22,22)
-        l.setSpacing(12)
-
-        title=QLabel("Import statement")
-        title.setObjectName("SectionTitle")
-        l.addWidget(title)
-
-        sub=QLabel("Choose a CSV, QFX, or OFX statement and review what will be added.")
-        sub.setWordWrap(True)
-        sub.setStyleSheet(f"color:{theme.MUTED}")
-        l.addWidget(sub)
+        l=QVBoxLayout(self); l.setContentsMargins(22,22,22,22); l.setSpacing(12)
+        title=QLabel("Import statement"); title.setObjectName("SectionTitle"); l.addWidget(title)
+        sub=QLabel("Choose a statement, tell PrivateMoney how this bank lays out its fields, and preview the result before importing.")
+        sub.setWordWrap(True); sub.setStyleSheet(f"color:{theme.MUTED}"); l.addWidget(sub)
 
         file_row=QHBoxLayout()
-        self.file=QLineEdit()
-        self.file.setReadOnly(True)
-        self.file.setPlaceholderText("Choose a statement file…")
-        browse=QPushButton("Choose file")
-        browse.setObjectName("Secondary")
-        browse.clicked.connect(self._browse)
-        file_row.addWidget(self.file,1)
-        file_row.addWidget(browse)
-        l.addLayout(file_row)
-
-        account_row=QHBoxLayout()
-        account_row.addWidget(QLabel("Account"))
-        self.account=QComboBox()
-        self.account.setEditable(True)
-        self.account.addItems([a.name for a in state.accounts()])
-        self.account.setPlaceholderText("Account name")
-        self.account.currentTextChanged.connect(self._refresh_preview)
-        account_row.addWidget(self.account,1)
-        l.addLayout(account_row)
+        self.file=QLineEdit(); self.file.setReadOnly(True); self.file.setPlaceholderText("Choose a statement file…")
+        browse=QPushButton("Choose file"); browse.setObjectName("Secondary"); browse.clicked.connect(self._browse)
+        file_row.addWidget(self.file,1); file_row.addWidget(browse); l.addLayout(file_row)
 
         self.mapping_widget=QWidget()
-        mapping=QVBoxLayout(self.mapping_widget)
-        mapping.setContentsMargins(0,0,0,0)
-        mapping.setSpacing(8)
+        mapping=QVBoxLayout(self.mapping_widget); mapping.setContentsMargins(0,0,0,0); mapping.setSpacing(9)
+        grid=QGridLayout(); grid.setHorizontalSpacing(12); grid.setVerticalSpacing(8)
 
-        grid=QGridLayout()
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(8)
         self.date_col=QComboBox()
         self.desc_col=QComboBox()
+        self.amount_mode=QComboBox()
+        self.amount_mode.addItem("Single amount column","single")
+        self.amount_mode.addItem("Separate debit / credit columns","split")
         self.amount_col=QComboBox()
-        for row,(label,box) in enumerate((
-            ("Date",self.date_col),
-            ("Description",self.desc_col),
-            ("Amount",self.amount_col),
-        )):
-            grid.addWidget(QLabel(label),row,0)
-            grid.addWidget(box,row,1)
+        self.debit_col=QComboBox()
+        self.credit_col=QComboBox()
+        self.account_col=QComboBox()
+        self.balance_col=QComboBox()
+
+        grid.addWidget(QLabel("Date"),0,0); grid.addWidget(self.date_col,0,1)
+        grid.addWidget(QLabel("Description"),1,0); grid.addWidget(self.desc_col,1,1)
+        grid.addWidget(QLabel("Amount format"),2,0); grid.addWidget(self.amount_mode,2,1)
+
+        self.amount_label=QLabel("Amount")
+        self.debit_label=QLabel("Debit")
+        self.credit_label=QLabel("Credit")
+        grid.addWidget(self.amount_label,3,0); grid.addWidget(self.amount_col,3,1)
+        grid.addWidget(self.debit_label,4,0); grid.addWidget(self.debit_col,4,1)
+        grid.addWidget(self.credit_label,5,0); grid.addWidget(self.credit_col,5,1)
+
+        grid.addWidget(QLabel("Account (optional)"),6,0); grid.addWidget(self.account_col,6,1)
+        grid.addWidget(QLabel("Balance (optional)"),7,0); grid.addWidget(self.balance_col,7,1)
         mapping.addLayout(grid)
 
         self.invert=QCheckBox("Invert amount signs")
-        self.invert.setToolTip("Use this when a CSV exports purchases as positive numbers.")
+        self.invert.setToolTip("For single-amount CSVs where purchases are exported as positive values.")
         mapping.addWidget(self.invert)
+
+        self.use_account_column=QCheckBox("Use the Account column to choose the destination account for each row")
+        mapping.addWidget(self.use_account_column)
+
+        profile_row=QHBoxLayout()
+        self.profile_note=QLabel(); self.profile_note.setStyleSheet(f"color:{theme.MUTED}")
+        self.save_default=QPushButton("Save as default"); self.save_default.setObjectName("Secondary"); self.save_default.clicked.connect(self._save_default)
+        profile_row.addWidget(self.profile_note,1); profile_row.addWidget(self.save_default)
+        mapping.addLayout(profile_row)
         l.addWidget(self.mapping_widget)
         self.mapping_widget.hide()
 
-        for box in (self.date_col,self.desc_col,self.amount_col):
-            box.currentTextChanged.connect(self._refresh_preview)
-        self.invert.toggled.connect(self._refresh_preview)
+        account_row=QHBoxLayout()
+        self.account_label=QLabel("Import to account")
+        account_row.addWidget(self.account_label)
+        self.account=QComboBox(); self.account.setEditable(True); self.account.addItems([a.name for a in state.accounts()]); self.account.setPlaceholderText("Account name")
+        self.account.currentTextChanged.connect(self._refresh_preview)
+        account_row.addWidget(self.account,1); l.addLayout(account_row)
 
-        self.preview=QTableWidget(0,3)
-        self.preview.setHorizontalHeaderLabels(["Date","Description","Amount"])
+        for box in (self.date_col,self.desc_col,self.amount_col,self.debit_col,self.credit_col,self.account_col,self.balance_col):
+            box.currentTextChanged.connect(self._mapping_changed)
+        self.amount_mode.currentIndexChanged.connect(self._mapping_changed)
+        self.invert.toggled.connect(self._mapping_changed)
+        self.use_account_column.toggled.connect(self._mapping_changed)
+
+        self.preview=QTableWidget(0,4); self.preview.setHorizontalHeaderLabels(["Date","Description","Amount","Account"])
         style_table(self.preview)
-        self.preview.horizontalHeader().setSectionResizeMode(0,QHeaderView.ResizeToContents)
-        self.preview.horizontalHeader().setSectionResizeMode(1,QHeaderView.Stretch)
-        self.preview.horizontalHeader().setSectionResizeMode(2,QHeaderView.ResizeToContents)
-        self.preview.setMinimumHeight(230)
-        l.addWidget(self.preview,1)
+        hh=self.preview.horizontalHeader()
+        hh.setSectionResizeMode(0,QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(1,QHeaderView.Stretch)
+        hh.setSectionResizeMode(2,QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(3,QHeaderView.ResizeToContents)
+        self.preview.setMinimumHeight(230); l.addWidget(self.preview,1)
 
-        self.summary=QLabel("Choose a statement file to begin.")
-        self.summary.setStyleSheet(f"color:{theme.MUTED}")
-        l.addWidget(self.summary)
+        self.summary=QLabel("Choose a statement file to begin."); self.summary.setStyleSheet(f"color:{theme.MUTED}"); l.addWidget(self.summary)
+        buttons=QHBoxLayout(); buttons.addStretch()
+        cancel=QPushButton("Cancel"); cancel.setObjectName("Secondary"); cancel.clicked.connect(self.reject)
+        self.import_btn=QPushButton("Import"); self.import_btn.setObjectName("Primary"); self.import_btn.setEnabled(False); self.import_btn.clicked.connect(self._import)
+        buttons.addWidget(cancel); buttons.addWidget(self.import_btn); l.addLayout(buttons)
+        self._update_amount_controls()
 
-        buttons=QHBoxLayout()
-        buttons.addStretch()
-        cancel=QPushButton("Cancel")
-        cancel.setObjectName("Secondary")
-        cancel.clicked.connect(self.reject)
-        self.import_btn=QPushButton("Import")
-        self.import_btn.setObjectName("Primary")
-        self.import_btn.setEnabled(False)
-        self.import_btn.clicked.connect(self._import)
-        buttons.addWidget(cancel)
-        buttons.addWidget(self.import_btn)
-        l.addLayout(buttons)
+    def _set_columns(self, box, headers, selected=None):
+        box.blockSignals(True)
+        box.clear()
+        box.addItem(self.NOT_SET,"")
+        for header in headers:
+            box.addItem(header,header)
+        if selected and selected in headers:
+            box.setCurrentText(selected)
+        else:
+            box.setCurrentIndex(0)
+        box.blockSignals(False)
+
+    def _value(self, box):
+        return box.currentData() or ""
 
     def _browse(self):
         path,_=QFileDialog.getOpenFileName(
-            self,
-            "Choose statement",
-            "",
+            self,"Choose statement","",
             "Statements (*.csv *.qfx *.ofx);;CSV files (*.csv);;QFX / OFX files (*.qfx *.ofx);;All files (*)",
         )
-        if not path:
-            return
-
+        if not path: return
         from pathlib import Path
         suffix=Path(path).suffix.lower()
         if suffix not in {".csv",".qfx",".ofx"}:
-            QMessageBox.warning(
-                self,
-                "Import statement",
-                "Choose a CSV, QFX, or OFX statement file.",
-            )
-            return
+            QMessageBox.warning(self,"Import statement","Choose a CSV, QFX, or OFX statement file."); return
 
         self.file.setText(path)
         if not self.account.currentText().strip():
-            self.account.setEditText(
-                Path(path).stem.replace("_"," ").replace("-"," ").title()
-            )
+            self.account.setEditText(Path(path).stem.replace("_"," ").replace("-"," ").title())
 
-        if suffix == ".csv":
-            self.file_type="csv"
-            self.mapping_widget.show()
-            try:
-                headers=read_csv_headers(path)
-                if not headers:
-                    raise ValueError("This CSV does not contain a header row.")
-            except Exception as exc:
-                QMessageBox.warning(self,"Import statement",str(exc))
-                return
+        if suffix != ".csv":
+            self.file_type="ofx"; self.mapping_widget.hide(); self.account_label.setText("Import to account")
+            self._refresh_preview(); return
 
-            for box in (self.date_col,self.desc_col,self.amount_col):
-                box.blockSignals(True)
-                box.clear()
-                box.addItems(headers)
-                box.blockSignals(False)
+        self.file_type="csv"; self.mapping_widget.show()
+        try:
+            headers=read_csv_headers(path)
+            if not headers: raise ValueError("This CSV does not contain a header row.")
+        except Exception as exc:
+            QMessageBox.warning(self,"Import statement",str(exc)); return
 
-            guesses=[
-                (self.date_col,guess_column(headers,DATE_CANDIDATES)),
-                (self.desc_col,guess_column(headers,DESCRIPTION_CANDIDATES)),
-                (self.amount_col,guess_column(headers,AMOUNT_CANDIDATES)),
-            ]
-            for box,value in guesses:
-                if value is not None:
-                    box.setCurrentText(value)
-        else:
-            self.file_type="ofx"
-            self.mapping_widget.hide()
+        self.headers=headers
+        self.header_signature=csv_header_signature(headers)
+        saved=self.vault.load_import_profile(self.header_signature) or {}
 
+        guessed_debit=guess_column(headers,DEBIT_CANDIDATES)
+        guessed_credit=guess_column(headers,CREDIT_CANDIDATES)
+        guessed_mode="split" if guessed_debit or guessed_credit else "single"
+
+        defaults={
+            "date_col":guess_column(headers,DATE_CANDIDATES),
+            "description_col":guess_column(headers,DESCRIPTION_CANDIDATES),
+            "amount_mode":guessed_mode,
+            "amount_col":guess_column(headers,AMOUNT_CANDIDATES),
+            "debit_col":guessed_debit,
+            "credit_col":guessed_credit,
+            "account_col":guess_column(headers,ACCOUNT_CANDIDATES),
+            "balance_col":guess_column(headers,BALANCE_CANDIDATES),
+            "invert_amounts":False,
+            "use_account_column":False,
+        }
+        defaults.update({k:v for k,v in saved.items() if k in defaults})
+
+        for box,key in (
+            (self.date_col,"date_col"),(self.desc_col,"description_col"),
+            (self.amount_col,"amount_col"),(self.debit_col,"debit_col"),
+            (self.credit_col,"credit_col"),(self.account_col,"account_col"),
+            (self.balance_col,"balance_col"),
+        ):
+            self._set_columns(box,headers,defaults.get(key))
+
+        mode_index=self.amount_mode.findData(defaults.get("amount_mode","single"))
+        self.amount_mode.setCurrentIndex(max(0,mode_index))
+        self.invert.setChecked(bool(defaults.get("invert_amounts",False)))
+        self.use_account_column.setChecked(bool(defaults.get("use_account_column",False)))
+        self.profile_note.setText("Saved mapping loaded." if saved else "Review the mapping before importing.")
+        self._mapping_changed()
+
+    def _update_amount_controls(self):
+        split=self.amount_mode.currentData()=="split"
+        self.amount_label.setVisible(not split); self.amount_col.setVisible(not split); self.invert.setVisible(not split)
+        self.debit_label.setVisible(split); self.debit_col.setVisible(split)
+        self.credit_label.setVisible(split); self.credit_col.setVisible(split)
+        has_account=bool(self._value(self.account_col))
+        self.use_account_column.setEnabled(has_account)
+        if not has_account:
+            self.use_account_column.setChecked(False)
+        use_rows=self.use_account_column.isChecked()
+        self.account.setEnabled(not use_rows)
+        self.account_label.setText("Fallback account" if use_rows else "Import to account")
+
+    def _mapping_changed(self, *args):
+        self._update_amount_controls()
+        if self.file_type=="csv":
+            self.profile_note.setText("Mapping changed. Save it as the default for this CSV format if it looks right.")
         self._refresh_preview()
+
+    def _profile(self):
+        return {
+            "date_col":self._value(self.date_col),
+            "description_col":self._value(self.desc_col),
+            "amount_mode":self.amount_mode.currentData(),
+            "amount_col":self._value(self.amount_col),
+            "debit_col":self._value(self.debit_col),
+            "credit_col":self._value(self.credit_col),
+            "account_col":self._value(self.account_col),
+            "balance_col":self._value(self.balance_col),
+            "invert_amounts":self.invert.isChecked(),
+            "use_account_column":self.use_account_column.isChecked(),
+        }
+
+    def _save_default(self):
+        if not self.header_signature or not self._mapping_valid():
+            QMessageBox.information(self,"Save as default","Finish a valid mapping first."); return
+        try:
+            self.vault.save_import_profile(self.header_signature,self._profile())
+            self.profile_note.setText("Saved as the default for CSVs with these columns.")
+        except Exception as exc:
+            QMessageBox.warning(self,"Save as default",str(exc))
+
+    def _mapping_valid(self):
+        if self.file_type!="csv": return True
+        p=self._profile()
+        if not p["date_col"] or not p["description_col"]: return False
+        if p["amount_mode"]=="single":
+            return bool(p["amount_col"])
+        return bool(p["debit_col"] or p["credit_col"])
 
     def _refresh_preview(self):
         path=self.file.text().strip()
-        account=self.account.currentText().strip()
         if not path or not self.file_type:
-            self.import_btn.setEnabled(False)
-            return
-
+            self.import_btn.setEnabled(False); return
         try:
-            if self.file_type == "csv":
-                if not (
-                    self.date_col.currentText()
-                    and self.desc_col.currentText()
-                    and self.amount_col.currentText()
-                ):
-                    self.import_btn.setEnabled(False)
-                    return
+            if self.file_type=="csv":
+                if not self._mapping_valid():
+                    self.rows=[]; self.preview.setRowCount(0)
+                    self.summary.setText("Map Date, Description, and the amount field(s) to continue.")
+                    self.import_btn.setEnabled(False); return
+                p=self._profile()
                 rows,skipped=parse_csv(
-                    path,
-                    date_col=self.date_col.currentText(),
-                    description_col=self.desc_col.currentText(),
-                    amount_col=self.amount_col.currentText(),
-                    invert_amounts=self.invert.isChecked(),
+                    path,date_col=p["date_col"],description_col=p["description_col"],
+                    amount_mode=p["amount_mode"],amount_col=p["amount_col"] or None,
+                    debit_col=p["debit_col"] or None,credit_col=p["credit_col"] or None,
+                    account_col=p["account_col"] or None,balance_col=p["balance_col"] or None,
+                    invert_amounts=p["invert_amounts"],
                 )
             else:
                 rows,skipped=parse_ofx(path)
         except Exception as exc:
-            self.rows=[]
-            self.preview.setRowCount(0)
-            self.summary.setText(str(exc))
-            self.import_btn.setEnabled(False)
-            return
+            self.rows=[]; self.preview.setRowCount(0); self.summary.setText(str(exc)); self.import_btn.setEnabled(False); return
 
-        self.rows=rows
-        self.skipped=skipped
-        shown=rows[:12]
-        self.preview.setRowCount(len(shown))
+        self.rows=rows; self.skipped=skipped
+        shown=rows[:12]; self.preview.setRowCount(len(shown))
         for r,row in enumerate(shown):
-            vals=[
-                row.posted.strftime("%b %d, %Y"),
-                row.merchant,
-                money(row.amount_cents/100),
-            ]
+            target=(row.account_hint or self.account.currentText().strip()) if self.use_account_column.isChecked() else self.account.currentText().strip()
+            vals=[row.posted.strftime("%b %d, %Y"),row.merchant,money(row.amount_cents/100),target or "—"]
             for c,val in enumerate(vals):
                 item=QTableWidgetItem(val)
-                if c==2:
-                    item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                if c==2: item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
                 self.preview.setItem(r,c,item)
 
         suffix=f" · {skipped} skipped" if skipped else ""
         kind="CSV" if self.file_type=="csv" else "QFX / OFX"
-        self.summary.setText(
-            f"{len(rows)} valid {kind} transactions{suffix}. "
-            f"Showing the first {len(shown)}."
+        self.summary.setText(f"{len(rows)} valid {kind} transactions{suffix}. Showing the first {len(shown)}.")
+        has_target=bool(self.account.currentText().strip()) or (
+            self.use_account_column.isChecked() and any(r.account_hint for r in rows)
         )
-        self.import_btn.setEnabled(
-            bool(rows and account and self.vault.unlocked)
-        )
+        self.import_btn.setEnabled(bool(rows and has_target and self.vault.unlocked))
 
     def _import(self):
         if not self.vault.unlocked:
-            QMessageBox.warning(
-                self,
-                "Import statement",
-                "Unlock PrivateMoney before importing.",
-            )
-            return
-
+            QMessageBox.warning(self,"Import statement","Unlock PrivateMoney before importing."); return
         result=self.state.import_transactions(
             self.account.currentText(),
             self.rows,
+            use_account_column=(self.file_type=="csv" and self.use_account_column.isChecked()),
         )
         QMessageBox.information(
-            self,
-            "Import complete",
-            f"Imported {result['imported']} transactions.\n"
-            f"Skipped {result['duplicates']} duplicates.",
+            self,"Import complete",
+            f"Imported {result['imported']} transactions.\nSkipped {result['duplicates']} duplicates."
         )
         self.accept()
 

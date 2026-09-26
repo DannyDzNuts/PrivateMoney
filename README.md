@@ -18,6 +18,17 @@ PrivateMoney now includes an encrypted SQLCipher vault for local persistence. Th
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.5.1
+
+- Custom CSV mapping per import with explicit **Not set** defaults
+- Support for both single Amount fields and separate Debit / Credit fields
+- Optional Account and Balance mappings
+- Optional per-row account routing using the mapped Account field
+- Running Balance can update the imported account's latest balance
+- **Save as default** remembers a mapping for matching CSV header layouts inside the encrypted local store
+- Automatic Debit/Credit detection for common bank exports
+- Prevents accidental fallback to the first CSV column when an Amount field cannot be identified
+
 ## Added in 0.5
 
 - Guided statement import from CSV, QFX, and OFX files

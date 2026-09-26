@@ -22,6 +22,7 @@ class ImportTests(unittest.TestCase):
                 path,
                 date_col="Date",
                 description_col="Description",
+                amount_mode="single",
                 amount_col="Amount",
             )
             self.assertEqual(len(rows), 2)
@@ -40,6 +41,37 @@ class ImportTests(unittest.TestCase):
             self.assertEqual(len(state.transactions()), 2)
             self.assertEqual(len(state.accounts()), 1)
 
+
+
+    def test_separate_debit_credit_bank_format(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bank.csv"
+            path.write_text(
+                "Account,ChkRef,Debit,Credit,Balance,Date,Description\n"
+                "1120883,,30,,103.54,9/23/2026,52723 POS PURCHASE TOTAL WIRELESS\n"
+                "1120883,,16.5,,133.54,9/22/2026,72121 POS PURCHASE Waffle House 116 McMinnville TN\n",
+                encoding="utf-8",
+            )
+            rows, skipped = parse_csv(
+                path,
+                date_col="Date",
+                description_col="Description",
+                amount_mode="split",
+                debit_col="Debit",
+                credit_col="Credit",
+                account_col="Account",
+                balance_col="Balance",
+            )
+            self.assertEqual(skipped, 0)
+            self.assertEqual([r.amount_cents for r in rows], [-3000, -1650])
+            self.assertEqual(rows[0].account_hint, "1120883")
+            self.assertEqual(rows[0].balance_cents, 10354)
+
+            state = FinanceState()
+            result = state.import_transactions("", rows, use_account_column=True)
+            self.assertEqual(result["imported"], 2)
+            self.assertEqual(state.accounts()[0].name, "1120883")
+            self.assertEqual(state.accounts()[0].current_balance, 103.54)
 
     def test_ofx_parse(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -114,6 +146,7 @@ NEWFILEUID:NONE
                 path,
                 date_col="date",
                 description_col="description",
+                amount_mode="single",
                 amount_col="amount",
                 invert_amounts=True,
             )

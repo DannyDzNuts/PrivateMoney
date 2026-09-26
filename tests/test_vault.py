@@ -72,6 +72,10 @@ class VaultTests(unittest.TestCase):
                 plaid._item_id = "item-id"
                 plaid._cursor = "cursor-value"
 
+            profile={"amount_mode":"split","debit_col":"Debit","credit_col":"Credit"}
+            vault.save_import_profile("headersig", profile)
+            self.assertEqual(vault.load_import_profile("headersig"), profile)
+
             vault.save_runtime(state, plaid)
             vault.lock()
 
