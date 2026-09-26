@@ -18,6 +18,16 @@ PrivateMoney now includes an encrypted SQLCipher vault for local persistence. Th
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.6
+
+- Multiple Plaid Items/banks are retained simultaneously instead of the newest bank replacing the previous one
+- Each linked bank keeps its own encrypted access token, sync cursor, account cache, and transaction cache
+- Sync merges all linked banks before publishing finance state
+- Sync failure for one bank no longer erases healthy banks
+- Legacy single-Item vaults migrate the last retained Item automatically and rebuild its cache on first sync
+- Plaid Link institution names are retained for the Accounts view
+- Plaid refreshes preserve statement-imported local accounts and transactions
+
 ## Added in 0.5.5
 
 - Fixed Plaid request construction referencing an undefined application version at runtime

@@ -79,9 +79,13 @@ class VaultTests(unittest.TestCase):
             plaid = PlaidBridge(state)
             plaid.configure("client-id", "secret-value")
             with plaid._lock:
-                plaid._access_token = "access-token"
-                plaid._item_id = "item-id"
-                plaid._cursor = "cursor-value"
+                plaid._items["item-id"] = {
+                    "access_token": "access-token",
+                    "cursor": "cursor-value",
+                    "accounts": [],
+                    "transactions": {},
+                    "institution_name": "Test Bank",
+                }
 
             profile={"amount_mode":"split","debit_col":"Debit","credit_col":"Credit"}
             vault.save_import_profile("headersig", profile)
@@ -105,8 +109,9 @@ class VaultTests(unittest.TestCase):
             session = restored_plaid.session_snapshot()
             self.assertEqual(session["client_id"], "client-id")
             self.assertEqual(session["secret"], "secret-value")
-            self.assertEqual(session["access_token"], "access-token")
-            self.assertEqual(session["cursor"], "cursor-value")
+            self.assertEqual(len(session["items"]), 1)
+            self.assertEqual(session["items"][0]["access_token"], "access-token")
+            self.assertEqual(session["items"][0]["cursor"], "cursor-value")
             vault.lock()
 
 

@@ -124,7 +124,12 @@ class DashboardApiServer:
                 try:
                     body = json.loads(self.rfile.read(length).decode("utf-8"))
                     public_token = body["public_token"]
-                    result = server_ref.plaid.exchange_and_sync(nonce, public_token)
+                    institution_name = str(body.get("institution_name") or "")
+                    result = server_ref.plaid.exchange_and_sync(
+                        nonce,
+                        public_token,
+                        institution_name=institution_name,
+                    )
                     return self._json(200, result)
                 except Exception as exc:
                     return self._json(400, {"ok": False, "error": str(exc)})
@@ -161,8 +166,9 @@ def plaid_link_page(nonce: str, link_token: str) -> str:
 const token={token_js}, nonce={nonce_js};
 const status=document.getElementById('status');
 const handler=Plaid.create({{token,
- onSuccess: async (public_token)=>{{status.textContent='Connecting and syncing…'; document.getElementById('open').disabled=true;
-   const r=await fetch('/plaid/exchange/'+encodeURIComponent(nonce),{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{public_token}})}});
+ onSuccess: async (public_token, metadata)=>{{status.textContent='Connecting and syncing…'; document.getElementById('open').disabled=true;
+   const institution_name=(metadata&&metadata.institution&&metadata.institution.name)||'';
+   const r=await fetch('/plaid/exchange/'+encodeURIComponent(nonce),{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{public_token,institution_name}})}});
    const j=await r.json(); if(r.ok){{status.textContent='Connected. You can close this tab and return to PrivateMoney.';}} else {{status.textContent='Connection failed: '+(j.error||'Unknown error'); document.getElementById('open').disabled=false;}}
  }},
  onExit:(err)=>{{if(err) status.textContent='Plaid Link closed with an error. Return to PrivateMoney to retry.';}}

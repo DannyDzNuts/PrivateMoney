@@ -202,11 +202,44 @@ class FinanceState:
 
     def replace_with_plaid(self, accounts: list[Account], transactions: list[Transaction]):
         with self._lock:
+            local_accounts = [
+                a for a in self._accounts if str(a.id).startswith("local-")
+            ]
+            local_names = {a.name for a in local_accounts}
+            local_transactions = [
+                t for t in self._transactions
+                if (
+                    (t.external_id and str(t.external_id).startswith(("csv:", "ofx:")))
+                    or t.account in local_names
+                )
+            ]
+
+            account_map = {a.id: a for a in local_accounts}
+            for account in accounts:
+                account_map[account.id] = account
+
+            tx_map = {}
+            for tx in local_transactions:
+                key = tx.external_id or (
+                    f"local:{tx.posted}:{tx.merchant}:{tx.amount}:{tx.account}"
+                )
+                tx_map[key] = tx
+            for tx in transactions:
+                key = tx.external_id or (
+                    f"plaid:{tx.posted}:{tx.merchant}:{tx.amount}:{tx.account}"
+                )
+                tx_map[key] = tx
+
             self._source = "plaid"
-            self._accounts = list(accounts)
-            self._transactions = sorted(transactions, key=lambda x: x.posted, reverse=True)
+            self._accounts = list(account_map.values())
+            self._transactions = sorted(
+                tx_map.values(), key=lambda x: x.posted, reverse=True
+            )
             self._recurring = []
-            self._net_worth = [("Now", round(sum(a.current_balance for a in accounts), 2))]
+            self._net_worth = [(
+                "Now",
+                round(sum(a.current_balance for a in self._accounts), 2),
+            )]
             self._spending = self._derive_spending(self._transactions)
             self._cashflow = self._derive_cashflow(self._transactions)
             self._version += 1

@@ -358,6 +358,8 @@ class EncryptedStore:
         }
 
     def save_plaid_session(self, session: dict[str, Any]):
+        items = session.get("items") or []
+        first = items[0] if items else {}
         with self.conn:
             self.conn.execute(
                 """
@@ -375,11 +377,16 @@ class EncryptedStore:
                 (
                     session.get("client_id", ""),
                     session.get("secret", ""),
-                    session.get("environment", "Sandbox"),
-                    session.get("access_token", ""),
-                    session.get("item_id", ""),
-                    session.get("cursor"),
+                    session.get("environment", "Production"),
+                    first.get("access_token", ""),
+                    first.get("item_id", ""),
+                    first.get("cursor"),
                 ),
+            )
+            self.conn.execute(
+                "INSERT INTO metadata(key,value) VALUES('plaid_items_v1',?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (json.dumps(items, separators=(",", ":")),),
             )
 
     def save_import_profile(self, signature: str, profile: dict[str, Any]):
@@ -407,6 +414,23 @@ class EncryptedStore:
         ).fetchone()
         if not row:
             return None
+
+        raw_items = self.get_metadata("plaid_items_v1")
+        if raw_items:
+            try:
+                items = json.loads(raw_items)
+            except json.JSONDecodeError:
+                items = []
+            if isinstance(items, list):
+                return {
+                    "client_id": row[0],
+                    "secret": row[1],
+                    "environment": row[2],
+                    "items": items,
+                }
+
+        # Backward-compatible payload. PlaidBridge migrates the last retained
+        # Item and resets its cursor so its full cache can be rebuilt.
         return {
             "client_id": row[0],
             "secret": row[1],
