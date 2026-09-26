@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Local configuration / credentials
+.env
+.env.*
+!.env.example
+*.secret
+*.token
+*.key
+*.pem
+config.local.*
+secrets.*
+
+# PrivateMoney local financial data
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.qfx
+*.ofx
+*.csv
+data/
+backups/
+exports/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
