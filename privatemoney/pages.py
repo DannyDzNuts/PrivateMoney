@@ -1,11 +1,11 @@
 from __future__ import annotations
 import threading
 from datetime import date, timedelta
-from PySide6.QtCore import Signal, Qt, QUrl
+from PySide6.QtCore import QEvent, Signal, Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QAbstractItemView, QCheckBox, QComboBox, QDateEdit, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QTableWidget, QTableWidgetItem,
+    QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QTableWidget, QTableWidgetItem,
     QToolButton, QVBoxLayout, QWidget
 )
 from .charts import CashFlowChart, DonutChart, LineChart
@@ -64,7 +64,7 @@ class DashboardPage(QWidget):
         self.net_duration.setCurrentIndex(2)
         self.net_duration.setMinimumWidth(76)
 
-        self.net_chart=LineChart([],show_points=False,hover_tooltip=True)
+        self.net_chart=LineChart([],show_points=False,hover_tooltip=True,show_trend=True)
         self.net_duration.currentIndexChanged.connect(self._update_net_chart)
         self.spend_chart=DonutChart(state.spending_last_month())
         self.cashflow_chart=CashFlowChart(state.cashflow())
@@ -147,8 +147,13 @@ class AccountsPage(QWidget):
                 if offset in (4,5): item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
                 self.table.setItem(r,offset,item)
         header=self.table.horizontalHeader()
-        for col in range(6):
-            header.setSectionResizeMode(col,QHeaderView.Stretch if col<4 else QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(0,QHeaderView.Stretch)
+        header.setSectionResizeMode(1,QHeaderView.Stretch)
+        header.setSectionResizeMode(2,QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3,QHeaderView.Stretch)
+        header.setSectionResizeMode(4,QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(5,QHeaderView.ResizeToContents)
+        self.table.setColumnWidth(0,240)
 
 
 class StatementImportDialog(QDialog):
@@ -491,21 +496,75 @@ class BudgetsPage(QWidget):
 
 
 class RecurringPage(QWidget):
+    SORTS=(
+        ("Next due: soonest","next_asc"),
+        ("Next due: latest","next_desc"),
+        ("Oldest recurring","oldest"),
+        ("Newest recurring","newest"),
+        ("Price: highest","price_desc"),
+        ("Price: lowest","price_asc"),
+        ("Age: oldest","age_desc"),
+        ("Age: newest","age_asc"),
+        ("Total spent: highest","total_desc"),
+        ("Frequency: most often","frequency_desc"),
+    )
+
     def __init__(self, state, parent=None):
         super().__init__(parent); self.state=state
         l=QVBoxLayout(self); l.setContentsMargins(28,24,28,28); l.setSpacing(16)
-        l.addWidget(page_header("Recurring","Bills and subscriptions detected from transaction patterns."))
-        self.table=QTableWidget(0,4); self.table.setHorizontalHeaderLabels(["Merchant","Category","Cadence / next","Amount"])
+        top=QHBoxLayout()
+        top.addWidget(page_header("Recurring","Bills and subscriptions detected from transaction patterns."))
+        top.addStretch()
+        top.addWidget(QLabel("Sort"))
+        self.sort=_NoWheelComboBox()
+        for label,key in self.SORTS: self.sort.addItem(label,key)
+        self.sort.currentIndexChanged.connect(self.refresh)
+        top.addWidget(self.sort)
+        l.addLayout(top)
+        self.table=QTableWidget(0,7)
+        self.table.setHorizontalHeaderLabels(["Merchant","Category","Cadence / next","Amount","First seen","Total spent","Occurrences"])
         style_table(self.table); l.addWidget(self.table,1); self.refresh()
 
-    def refresh(self):
+    def refresh(self,*_):
         self.table.clearSpans()
-        rows=self.state.recurring(); self.table.setRowCount(len(rows))
-        for r,x in enumerate(rows):
-            vals=[x.merchant,x.category,f"{x.cadence} · {x.next_date:%b %d}",money(-x.amount)]
-            for c,val in enumerate(vals): self.table.setItem(r,c,QTableWidgetItem(val))
+        rows=self.state.recurring_details()
+        key=self.sort.currentData() if hasattr(self,"sort") else "next_asc"
+        reverse=key in {"next_desc","price_desc","age_desc","total_desc","frequency_desc"}
+        accessors={
+            "next_asc":lambda x:x["charge"].next_date,
+            "next_desc":lambda x:x["charge"].next_date,
+            "oldest":lambda x:x["first_seen"],
+            "newest":lambda x:x["first_seen"],
+            "price_desc":lambda x:x["charge"].amount,
+            "price_asc":lambda x:x["charge"].amount,
+            "age_desc":lambda x:x["age_days"],
+            "age_asc":lambda x:x["age_days"],
+            "total_desc":lambda x:x["total_spent"],
+            "frequency_desc":lambda x:x["occurrences"],
+        }
+        if key=="newest":
+            reverse=True
+        rows=sorted(rows,key=accessors.get(key,accessors["next_asc"]),reverse=reverse)
+        self.table.setRowCount(len(rows))
+        for r,row in enumerate(rows):
+            x=row["charge"]
+            vals=[
+                x.merchant,
+                x.category,
+                f"{x.cadence} · {x.next_date:%b %d}",
+                money(-x.amount),
+                row["first_seen"].strftime("%b %d, %Y"),
+                money(row["total_spent"]),
+                str(row["occurrences"]),
+            ]
+            for col,val in enumerate(vals):
+                item=QTableWidgetItem(val)
+                if col in (3,5,6): item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                self.table.setItem(r,col,item)
         if not rows:
-            self.table.setRowCount(1); self.table.setItem(0,0,QTableWidgetItem("No recurring transaction patterns were detected in the available history.")); self.table.setSpan(0,0,1,4)
+            self.table.setRowCount(1)
+            self.table.setItem(0,0,QTableWidgetItem("No recurring transaction patterns were detected in the available history."))
+            self.table.setSpan(0,0,1,7)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
 
@@ -525,33 +584,76 @@ class CategoryTagFilter(QWidget):
         super().__init__(parent)
         self._selected=[]
         self._options=[]
-        self.layout=QHBoxLayout(self)
-        self.layout.setContentsMargins(0,0,0,0)
-        self.layout.setSpacing(6)
+        self.setFixedHeight(42)
+        self.setMinimumWidth(250)
+        self.setMaximumWidth(420)
+
+        shell=QHBoxLayout(self)
+        shell.setContentsMargins(0,0,0,0)
+        shell.setSpacing(0)
+
+        self.scroller=QScrollArea()
+        self.scroller.setWidgetResizable(True)
+        self.scroller.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroller.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroller.setFrameShape(QFrame.NoFrame)
+        self.scroller.setStyleSheet(
+            f"QScrollArea {{ background:{theme.CHARCOAL}; border:1px solid {theme.OUTLINE}; border-right:0; border-radius:10px 0 0 10px; }}"
+            "QScrollArea > QWidget > QWidget { background: transparent; }"
+        )
+        self.scroller.viewport().installEventFilter(self)
+
+        self.content=QWidget()
+        self.row=QHBoxLayout(self.content)
+        self.row.setContentsMargins(7,4,6,4)
+        self.row.setSpacing(5)
+
         self.tags=QHBoxLayout()
         self.tags.setSpacing(5)
-        self.layout.addLayout(self.tags)
-        self.input=QComboBox()
-        self.input.setEditable(True)
-        self.input.setInsertPolicy(QComboBox.NoInsert)
-        self.input.setMinimumWidth(170)
-        self.input.lineEdit().setPlaceholderText("Search categories…")
-        self.input.activated.connect(self._picked)
-        self.layout.addWidget(self.input,1)
+        self.row.addLayout(self.tags)
+
+        self.input=QLineEdit()
+        self.input.setFrame(False)
+        self.input.setMinimumWidth(80)
+        self.input.setMaximumWidth(150)
+        self.input.setPlaceholderText("Search categories…")
+        self.input.setStyleSheet("QLineEdit { border:0; background:transparent; padding:4px; }")
+        self.input.textChanged.connect(self._filter_options)
+        self.row.addWidget(self.input)
+        self.row.addStretch()
+        self.scroller.setWidget(self.content)
+        shell.addWidget(self.scroller,1)
+
+        self.drop=QToolButton()
+        self.drop.setText("▾")
+        self.drop.setFixedWidth(34)
+        self.drop.setStyleSheet(
+            f"QToolButton {{ background:{theme.CHARCOAL}; border:1px solid {theme.OUTLINE}; border-left:0; border-radius:0 10px 10px 0; }}"
+            f"QToolButton:hover {{ background:{theme.CARD_HOVER}; }}"
+        )
+        self.drop.clicked.connect(self._show_menu)
+        shell.addWidget(self.drop)
+
+        self.menu=QComboBox(self)
+        self.menu.hide()
+        self.menu.activated.connect(self._picked)
+
+    def eventFilter(self, obj, event):
+        if obj is self.scroller.viewport() and event.type()==QEvent.Wheel:
+            delta=event.angleDelta().y() or event.pixelDelta().y()
+            bar=self.scroller.horizontalScrollBar()
+            bar.setValue(bar.value()-delta)
+            event.accept()
+            return True
+        return super().eventFilter(obj,event)
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        self._ensure_search_visible()
 
     def set_options(self, options):
         self._options=list(options)
-        text=self.input.currentText()
-        self.input.blockSignals(True)
-        self.input.clear()
-        self.input.addItems([x for x in self._options if x not in self._selected])
-        completer=self.input.completer()
-        if completer is not None:
-            completer.setCaseSensitivity(Qt.CaseInsensitive)
-            completer.setFilterMode(Qt.MatchContains)
-        self.input.setCurrentIndex(-1)
-        self.input.setEditText(text if text not in self._selected else "")
-        self.input.blockSignals(False)
+        self._populate_menu(self.input.text())
 
     def selected(self):
         return list(self._selected)
@@ -563,11 +665,33 @@ class CategoryTagFilter(QWidget):
         self._rebuild()
         self.changed.emit()
 
+    def _populate_menu(self, query=""):
+        query=query.strip().casefold()
+        self.menu.blockSignals(True)
+        self.menu.clear()
+        for option in self._options:
+            if option in self._selected:
+                continue
+            if query and query not in option.casefold():
+                continue
+            self.menu.addItem(option)
+        self.menu.blockSignals(False)
+
+    def _filter_options(self, text):
+        self._populate_menu(text)
+
+    def _show_menu(self):
+        self._populate_menu(self.input.text())
+        if self.menu.count()==0:
+            return
+        self.menu.setGeometry(self.drop.x(),self.drop.y(),self.drop.width(),self.drop.height())
+        self.menu.showPopup()
+
     def _picked(self, index):
-        value=self.input.itemText(index).strip()
+        value=self.menu.itemText(index).strip()
         if value and value not in self._selected:
             self._selected.append(value)
-            self.input.setEditText("")
+            self.input.clear()
             self._rebuild()
             self.changed.emit()
 
@@ -576,6 +700,10 @@ class CategoryTagFilter(QWidget):
             self._selected.remove(value)
             self._rebuild()
             self.changed.emit()
+
+    def _ensure_search_visible(self):
+        bar=self.scroller.horizontalScrollBar()
+        bar.setValue(bar.maximum())
 
     def _rebuild(self):
         while self.tags.count():
@@ -587,9 +715,13 @@ class CategoryTagFilter(QWidget):
             tag=QToolButton()
             tag.setText(value+"  ×")
             tag.setToolTip("Remove "+value)
+            tag.setStyleSheet(
+                f"QToolButton {{ background:{theme.DEEP_VIOLET}; border:1px solid {theme.VIOLET}; border-radius:8px; padding:4px 7px; }}"
+            )
             tag.clicked.connect(lambda checked=False, v=value: self._remove(v))
             self.tags.addWidget(tag)
-        self.set_options(self._options)
+        self._populate_menu(self.input.text())
+        self._ensure_search_visible()
 
 
 class TransactionsPage(QWidget):
@@ -616,54 +748,75 @@ class TransactionsPage(QWidget):
         l.addLayout(grid)
 
         filter_card=Card()
-        filters=QGridLayout(filter_card)
-        filters.setContentsMargins(16,12,16,12)
-        filters.setHorizontalSpacing(10); filters.setVerticalSpacing(7)
+        filter_outer=QVBoxLayout(filter_card)
+        filter_outer.setContentsMargins(16,12,16,12)
+        filter_outer.setSpacing(8)
 
+        filter_head=QHBoxLayout()
+        filter_head.addWidget(QLabel("Filters"))
+        filter_head.addStretch()
+        self.filter_toggle=QToolButton()
+        self.filter_toggle.setText("More filters ▾")
+        self.filter_toggle.setCheckable(True)
+        self.filter_toggle.toggled.connect(self._toggle_filters)
+        filter_head.addWidget(self.filter_toggle)
+        filter_outer.addLayout(filter_head)
+
+        basic=QGridLayout()
+        basic.setHorizontalSpacing(10); basic.setVerticalSpacing(7)
         self.category_filter=CategoryTagFilter()
-        self.history_filter=QComboBox()
+        self.history_filter=_NoWheelComboBox()
         self.history_filter.addItem("All history",None)
         self.history_filter.addItem("1 month",1)
         self.history_filter.addItem("3 months",3)
         self.history_filter.addItem("6 months",6)
         self.history_filter.addItem("12 months",12)
+        self.account_filter=_NoWheelComboBox()
+        self.merchant_filter=QLineEdit(); self.merchant_filter.setPlaceholderText("Merchant contains…")
 
+        for col,(label,widget) in enumerate((
+            ("Categories",self.category_filter),
+            ("History",self.history_filter),
+            ("Account",self.account_filter),
+            ("Merchant",self.merchant_filter),
+        )):
+            basic.addWidget(QLabel(label),0,col)
+            basic.addWidget(widget,1,col)
+        filter_outer.addLayout(basic)
+
+        self.advanced_filters=QWidget()
+        advanced=QGridLayout(self.advanced_filters)
+        advanced.setContentsMargins(0,0,0,0)
+        advanced.setHorizontalSpacing(10); advanced.setVerticalSpacing(7)
         self.start_date=QDateEdit(); self.start_date.setCalendarPopup(True)
         self.end_date=QDateEdit(); self.end_date.setCalendarPopup(True)
         self.start_date.setMinimumDate(date(1900,1,1)); self.end_date.setMinimumDate(date(1900,1,1))
-
         self.min_amount=QLineEdit(); self.min_amount.setPlaceholderText("Min $")
         self.max_amount=QLineEdit(); self.max_amount.setPlaceholderText("Max $")
-        self.account_filter=QComboBox()
-        self.merchant_filter=QLineEdit(); self.merchant_filter.setPlaceholderText("Merchant contains…")
-
-        controls=[
-            ("Categories",self.category_filter),
-            ("History",self.history_filter),
+        for col,(label,widget) in enumerate((
             ("Start date",self.start_date),
             ("End date",self.end_date),
             ("Dollar min",self.min_amount),
             ("Dollar max",self.max_amount),
-            ("Account",self.account_filter),
-            ("Merchant",self.merchant_filter),
-        ]
-        for idx,(label,widget) in enumerate(controls):
-            row=(idx//4)*2
-            col=idx%4
-            filters.addWidget(QLabel(label),row,col)
-            filters.addWidget(widget,row+1,col)
+        )):
+            advanced.addWidget(QLabel(label),0,col)
+            advanced.addWidget(widget,1,col)
+        self.advanced_filters.hide()
+        filter_outer.addWidget(self.advanced_filters)
 
+        footer=QHBoxLayout()
         self.clear_filters=QPushButton("Reset filters"); self.clear_filters.setObjectName("Secondary")
-        filters.addWidget(self.clear_filters,4,0)
+        footer.addWidget(self.clear_filters)
         self.summary=QLabel(); self.summary.setWordWrap(True); self.summary.setStyleSheet(f"color:{theme.MUTED}")
-        filters.addWidget(self.summary,4,1,1,3)
+        footer.addWidget(self.summary,1)
+        filter_outer.addLayout(footer)
         l.addWidget(filter_card)
 
         bulk=Card()
         bulk_l=QHBoxLayout(bulk); bulk_l.setContentsMargins(16,10,16,10)
         bulk_l.addWidget(QLabel("Bulk categorize merchant"))
-        self.bulk_merchant=QComboBox(); self.bulk_merchant.setEditable(True); self.bulk_merchant.setMinimumWidth(240)
-        self.bulk_category=QComboBox(); self.bulk_category.setMinimumWidth(180)
+        self.bulk_merchant=_NoWheelComboBox(); self.bulk_merchant.setEditable(True); self.bulk_merchant.setMinimumWidth(240)
+        self.bulk_category=_NoWheelComboBox(); self.bulk_category.setMinimumWidth(180)
         self.bulk_apply=QPushButton("Apply to all"); self.bulk_apply.setObjectName("Secondary")
         self.bulk_apply.clicked.connect(self._bulk_categorize)
         bulk_l.addWidget(self.bulk_merchant,1); bulk_l.addWidget(self.bulk_category); bulk_l.addWidget(self.bulk_apply)
@@ -682,6 +835,10 @@ class TransactionsPage(QWidget):
         self.merchant_filter.textChanged.connect(self._apply_filters)
         self.clear_filters.clicked.connect(self._reset_filters)
         self.refresh()
+
+    def _toggle_filters(self, expanded):
+        self.advanced_filters.setVisible(bool(expanded))
+        self.filter_toggle.setText("Fewer filters ▴" if expanded else "More filters ▾")
 
     def _import_statement(self):
         if self.vault is None or not self.vault.unlocked:
