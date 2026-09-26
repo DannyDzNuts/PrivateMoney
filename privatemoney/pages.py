@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
-    QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
+    QApplication, QAbstractItemView, QCheckBox, QComboBox, QDateEdit, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget
 )
@@ -534,56 +534,192 @@ class ReportsPage(QWidget):
     def __init__(self, state, parent=None):
         super().__init__(parent); self.state=state
         l=QVBoxLayout(self); l.setContentsMargins(28,24,28,28); l.setSpacing(14)
-        l.addWidget(page_header("Reports","Understand patterns without sending dashboard data anywhere."))
+        l.addWidget(page_header("Reports","Combine filters to inspect exactly the activity you care about."))
 
         grid=QGridLayout(); grid.setSpacing(14)
-        self.spend=DonutChart(state.spending()); self.cash=CashFlowChart(state.cashflow())
+        self.spend=DonutChart([])
+        self.cash=CashFlowChart([])
         grid.addWidget(card_with_title("Spending by category",self.spend),0,0)
         grid.addWidget(card_with_title("Income vs. spending",self.cash),0,1)
         l.addLayout(grid)
 
-        filters=QHBoxLayout()
-        filters.addWidget(QLabel("Category"))
-        self.category_filter=QComboBox()
-        self.category_filter.setMinimumWidth(220)
-        self.category_filter.currentIndexChanged.connect(self._apply_category_filter)
-        filters.addWidget(self.category_filter)
-        self.category_summary=QLabel()
-        self.category_summary.setStyleSheet(f"color:{theme.MUTED}")
-        filters.addWidget(self.category_summary)
-        filters.addStretch()
-        l.addLayout(filters)
+        filter_card=Card()
+        filters=QGridLayout(filter_card); filters.setContentsMargins(18,14,18,14); filters.setHorizontalSpacing(10); filters.setVerticalSpacing(9)
+
+        self.category_filter=QComboBox(); self.category_filter.setMinimumWidth(180)
+        self.history_filter=QComboBox()
+        self.history_filter.addItem("All history",None)
+        self.history_filter.addItem("1 month",1)
+        self.history_filter.addItem("3 months",3)
+        self.history_filter.addItem("6 months",6)
+        self.history_filter.addItem("12 months",12)
+
+        self.start_date=QDateEdit(); self.start_date.setCalendarPopup(True); self.start_date.setSpecialValueText("Any start")
+        self.end_date=QDateEdit(); self.end_date.setCalendarPopup(True); self.end_date.setSpecialValueText("Any end")
+        self.start_date.setMinimumDate(date(1900,1,1)); self.end_date.setMinimumDate(date(1900,1,1))
+        self.start_date.setDate(self.start_date.minimumDate()); self.end_date.setDate(self.end_date.minimumDate())
+
+        self.min_amount=QLineEdit(); self.min_amount.setPlaceholderText("Min $")
+        self.max_amount=QLineEdit(); self.max_amount.setPlaceholderText("Max $")
+        self.account_filter=QComboBox()
+        self.merchant_filter=QLineEdit(); self.merchant_filter.setPlaceholderText("Merchant contains…")
+
+        controls=[
+            ("Category",self.category_filter),
+            ("History",self.history_filter),
+            ("Start date",self.start_date),
+            ("End date",self.end_date),
+            ("Dollar range",self.min_amount),
+            ("",self.max_amount),
+            ("Account",self.account_filter),
+            ("Merchant",self.merchant_filter),
+        ]
+        for idx,(label,widget) in enumerate(controls):
+            row=idx//4*2
+            col=idx%4
+            if label:
+                filters.addWidget(QLabel(label),row,col)
+            filters.addWidget(widget,row+1,col)
+
+        self.clear_filters=QPushButton("Clear filters"); self.clear_filters.setObjectName("Secondary")
+        filters.addWidget(self.clear_filters,4,0,1,1)
+        self.category_summary=QLabel(); self.category_summary.setWordWrap(True); self.category_summary.setStyleSheet(f"color:{theme.MUTED}")
+        filters.addWidget(self.category_summary,4,1,1,3)
+        l.addWidget(filter_card)
 
         self.transactions=transaction_table([])
         l.addWidget(self.transactions,1)
+
+        for combo in (self.category_filter,self.history_filter,self.account_filter):
+            combo.currentIndexChanged.connect(self._apply_filters)
+        self.start_date.dateChanged.connect(self._apply_filters)
+        self.end_date.dateChanged.connect(self._apply_filters)
+        self.min_amount.textChanged.connect(self._apply_filters)
+        self.max_amount.textChanged.connect(self._apply_filters)
+        self.merchant_filter.textChanged.connect(self._apply_filters)
+        self.clear_filters.clicked.connect(self._clear_filters)
         self.refresh()
 
-    def _apply_category_filter(self, *_):
+    @staticmethod
+    def _parse_amount(text):
+        text=text.strip().replace("$","").replace(",","")
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _subtract_months(day, months):
+        month=day.month-1-int(months)
+        year=day.year+month//12
+        month=month%12+1
+        month_lengths=(31,29 if year%4==0 and (year%100!=0 or year%400==0) else 28,31,30,31,30,31,31,30,31,30,31)
+        return date(year,month,min(day.day,month_lengths[month-1]))
+
+    def _filtered_rows(self):
+        rows=self.state.transactions()
         category=self.category_filter.currentData()
-        rows=self.state.transactions_for_category(category)
+        account=self.account_filter.currentData()
+        merchant=self.merchant_filter.text().strip().casefold()
+        months=self.history_filter.currentData()
+        min_amount=self._parse_amount(self.min_amount.text())
+        max_amount=self._parse_amount(self.max_amount.text())
+
+        if category:
+            rows=[t for t in rows if t.category==category]
+        if account:
+            rows=[t for t in rows if t.account==account]
+        if merchant:
+            rows=[t for t in rows if merchant in t.merchant.casefold()]
+        if months:
+            cutoff=self._subtract_months(date.today(),months)
+            rows=[t for t in rows if t.posted>=cutoff]
+
+        if self.start_date.date()!=self.start_date.minimumDate():
+            start=self.start_date.date().toPython()
+            rows=[t for t in rows if t.posted>=start]
+        if self.end_date.date()!=self.end_date.minimumDate():
+            end=self.end_date.date().toPython()
+            rows=[t for t in rows if t.posted<=end]
+
+        if min_amount is not None:
+            rows=[t for t in rows if abs(t.amount)>=min_amount]
+        if max_amount is not None:
+            rows=[t for t in rows if abs(t.amount)<=max_amount]
+        return rows
+
+    @staticmethod
+    def _spending_segments(rows):
+        totals={}
+        for tx in rows:
+            if tx.amount<0:
+                category=tx.category or "Other"
+                totals[category]=totals.get(category,0.0)-tx.amount
+        return sorted(((k,round(v,2)) for k,v in totals.items()),key=lambda x:x[1],reverse=True)[:8]
+
+    @staticmethod
+    def _cashflow_rows(rows):
+        monthly={}
+        for tx in rows:
+            key=(tx.posted.year,tx.posted.month)
+            bucket=monthly.setdefault(key,[0.0,0.0])
+            if tx.amount>=0:
+                bucket[0]+=tx.amount
+            else:
+                bucket[1]+=-tx.amount
+        keys=sorted(monthly)[-6:]
+        return [(date(y,m,1).strftime("%b"),round(monthly[(y,m)][0],2),round(monthly[(y,m)][1],2)) for y,m in keys]
+
+    def _apply_filters(self, *_):
+        rows=self._filtered_rows()
         fill_transaction_table(self.transactions,rows)
-        if rows:
-            total=sum(t.amount for t in rows)
-            self.category_summary.setText(
-                f"{len(rows)} transactions · net {money(total)}"
-            )
-        else:
-            self.category_summary.setText("No matching transactions")
+        self.spend.set_segments(self._spending_segments(rows))
+        self.cash.set_rows(self._cashflow_rows(rows))
+
+        spending=sum(-t.amount for t in rows if t.amount<0)
+        income=sum(t.amount for t in rows if t.amount>0)
+        net=sum(t.amount for t in rows)
+        self.category_summary.setText(
+            f"{len(rows)} transactions · spending {money(-spending)} · income {money(income)} · net {money(net)}"
+            if rows else "No matching transactions"
+        )
+
+    def _clear_filters(self):
+        self.category_filter.setCurrentIndex(0)
+        self.history_filter.setCurrentIndex(0)
+        self.account_filter.setCurrentIndex(0)
+        self.start_date.setDate(self.start_date.minimumDate())
+        self.end_date.setDate(self.end_date.minimumDate())
+        self.min_amount.clear()
+        self.max_amount.clear()
+        self.merchant_filter.clear()
+        self._apply_filters()
 
     def refresh(self):
-        self.spend.set_segments(self.state.spending())
-        self.cash.set_rows(self.state.cashflow())
+        previous_category=self.category_filter.currentData()
+        previous_account=self.account_filter.currentData()
 
-        previous=self.category_filter.currentData()
         self.category_filter.blockSignals(True)
         self.category_filter.clear()
         self.category_filter.addItem("All categories",None)
         for category in self.state.categories():
             self.category_filter.addItem(category,category)
-        index=self.category_filter.findData(previous)
-        self.category_filter.setCurrentIndex(index if index >= 0 else 0)
+        index=self.category_filter.findData(previous_category)
+        self.category_filter.setCurrentIndex(index if index>=0 else 0)
         self.category_filter.blockSignals(False)
-        self._apply_category_filter()
+
+        self.account_filter.blockSignals(True)
+        self.account_filter.clear()
+        self.account_filter.addItem("All accounts",None)
+        for account in sorted({t.account for t in self.state.transactions() if t.account},key=str.casefold):
+            self.account_filter.addItem(account,account)
+        index=self.account_filter.findData(previous_account)
+        self.account_filter.setCurrentIndex(index if index>=0 else 0)
+        self.account_filter.blockSignals(False)
+
+        self._apply_filters()
 
 
 class SettingsPage(QScrollArea):
@@ -739,6 +875,11 @@ def style_table(table):
     table.setSelectionBehavior(QAbstractItemView.SelectRows); table.setEditTriggers(QAbstractItemView.NoEditTriggers)
 
 
+class _NoWheelComboBox(QComboBox):
+    def wheelEvent(self, event):
+        event.ignore()
+
+
 def transaction_table(items, compact=False, category_callback=None, categories=None):
     table=QTableWidget(0,5)
     table.setHorizontalHeaderLabels(["Date","Merchant","Category","Account","Amount"])
@@ -768,7 +909,7 @@ def fill_transaction_table(
         values=[t.posted.strftime("%b %d"),t.merchant,t.category,t.account,money(t.amount)]
         for c,value in enumerate(values):
             if c == 2 and category_callback is not None:
-                combo=QComboBox()
+                combo=_NoWheelComboBox()
                 choices=list(options)
                 if t.category and t.category not in choices:
                     choices.append(t.category)
