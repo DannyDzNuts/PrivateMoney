@@ -12,7 +12,7 @@ PALETTE = [theme.VIOLET, theme.CYAN, theme.BLUE, theme.POSITIVE, theme.WARNING, 
 class ChartBase(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(230)
+        self.setMinimumHeight(175)
         self.setAttribute(Qt.WA_OpaquePaintEvent, False)
         self.setStyleSheet("background: transparent;")
 
@@ -128,13 +128,19 @@ class _DonutCanvas(ChartBase):
         self._text(p, cx - 24, cy + 19, "spent", theme.MUTED, 9)
 
 
+class _LegendScrollArea(QScrollArea):
+    def wheelEvent(self, event):
+        super().wheelEvent(event)
+        event.accept()
+
+
 class DonutChart(QWidget):
     """Donut visualization with an independently scrollable legend."""
 
     def __init__(self, segments, parent=None):
         super().__init__(parent)
         self.segments = list(segments)
-        self.setMinimumHeight(230)
+        self.setMinimumHeight(175)
         self.setStyleSheet("background: transparent;")
 
         layout = QHBoxLayout(self)
@@ -144,7 +150,7 @@ class DonutChart(QWidget):
         self.canvas = _DonutCanvas(self.segments)
         layout.addWidget(self.canvas, 3)
 
-        self.legend_scroll = QScrollArea()
+        self.legend_scroll = _LegendScrollArea()
         self.legend_scroll.setObjectName("LegendScroll")
         self.legend_scroll.setFrameShape(QFrame.NoFrame)
         self.legend_scroll.setWidgetResizable(True)

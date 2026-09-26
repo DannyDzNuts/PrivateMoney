@@ -10,7 +10,7 @@ class FinanceState:
     def __init__(self):
         self._lock = RLock()
         self._version = 0
-        self._source = "demo"
+        self._source = "local"
         self._accounts = list(ACCOUNTS)
         self._transactions = list(TRANSACTIONS)
         self._budgets = list(BUDGETS)

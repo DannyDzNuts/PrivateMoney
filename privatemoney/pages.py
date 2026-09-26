@@ -29,11 +29,10 @@ def card_with_title(title: str, child: QWidget, subtitle: str = "") -> Card:
     return card
 
 
-class DashboardPage(QScrollArea):
+class DashboardPage(QWidget):
     def __init__(self, state, parent=None):
-        super().__init__(parent); self.state=state; self.setWidgetResizable(True); self.setFrameShape(QFrame.NoFrame)
-        host=QWidget(); self.setWidget(host)
-        l=QVBoxLayout(host); l.setContentsMargins(28,24,28,28); l.setSpacing(18)
+        super().__init__(parent); self.state=state
+        l=QVBoxLayout(self); l.setContentsMargins(28,20,28,22); l.setSpacing(14)
         l.addWidget(page_header("Overview", "A private snapshot of your money."))
         metrics=QGridLayout(); metrics.setSpacing(14)
         self.net_card=MetricCard("Net worth", "$0.00")
@@ -53,29 +52,27 @@ class DashboardPage(QScrollArea):
         for b in state.budgets(): bl.addWidget(BudgetRow(b.category,b.spent,b.limit))
         bl.addStretch(); grid.addWidget(card_with_title("Budgets",budgets,"Current plan"),1,2)
         grid.setColumnStretch(0,2); grid.setColumnStretch(1,2); grid.setColumnStretch(2,2)
-        l.addLayout(grid)
-        self.recent_table=transaction_table([] , compact=True)
-        l.addWidget(card_with_title("Recent activity", self.recent_table))
+        grid.setRowStretch(0,1); grid.setRowStretch(1,1)
+        l.addLayout(grid,1)
         self.refresh()
 
     def refresh(self):
         s=self.state.summary()
         live=s["source"]=="plaid"
-        self.net_card.set_value(money(s["net_worth"])); self.net_card.set_delta("Live Plaid snapshot" if live else "Demo snapshot", True)
-        self.cash_card.set_value(money(s["cash_available"])); self.cash_card.set_delta(f"{s['account_count']} linked accounts" if live else "Demo checking + savings", True)
+        self.net_card.set_value(money(s["net_worth"])); self.net_card.set_delta("Across tracked accounts", True)
+        self.cash_card.set_value(money(s["cash_available"])); self.cash_card.set_delta(f"{s['account_count']} accounts", True)
         self.spend_card.set_value(money(-s["month_spending"])); self.spend_card.set_delta(f"Income {money(s['month_income'])}", s["month_income"] >= s["month_spending"])
-        self.recurring_card.set_value(money(-s["upcoming_recurring"])); self.recurring_card.set_delta("Pattern detection pending" if live else "Demo recurring charges", True)
+        self.recurring_card.set_value(money(-s["upcoming_recurring"])); self.recurring_card.set_delta("Pattern detection pending" if live else "Upcoming scheduled charges", True)
         self.net_chart.set_points(self.state.net_worth())
         self.spend_chart.set_segments(self.state.spending())
         self.cashflow_chart.set_rows(self.state.cashflow())
-        fill_transaction_table(self.recent_table, self.state.transactions()[:5])
 
 
 class AccountsPage(QWidget):
     def __init__(self, state, parent=None):
         super().__init__(parent); self.state=state
         l=QVBoxLayout(self); l.setContentsMargins(28,24,28,28); l.setSpacing(16)
-        l.addWidget(page_header("Accounts", "Balances from demo data or the active Plaid session."))
+        l.addWidget(page_header("Accounts", "Balances across your accounts."))
         self.table=QTableWidget(0,5); self.table.setHorizontalHeaderLabels(["Account","Type","Institution","Available","Current"])
         style_table(self.table); l.addWidget(self.table,1); self.refresh()
 
@@ -188,7 +185,7 @@ class SettingsPage(QScrollArea):
         self.connect_btn=QPushButton("Connect bank"); self.connect_btn.setObjectName("Primary"); self.connect_btn.clicked.connect(self._connect_bank)
         self.sync_btn=QPushButton("Refresh & sync"); self.sync_btn.setObjectName("Secondary"); self.sync_btn.setToolTip("Requests a fresh Plaid transaction update when Transactions Refresh is available, then syncs available changes."); self.sync_btn.clicked.connect(self._sync_now)
         buttons.addWidget(configure); buttons.addWidget(self.connect_btn); buttons.addWidget(self.sync_btn); buttons.addStretch(); p.addLayout(buttons)
-        privacy=QLabel("Demo safety: Plaid client secret, Item access token, and sync cursor stay only in process memory and are cleared when PrivateMoney exits. Bank credentials are entered only inside Plaid Link.")
+        privacy=QLabel("Session-only security: Plaid client secret, Item access token, and sync cursor stay only in process memory and are cleared when PrivateMoney exits. Bank credentials are entered only inside Plaid Link.")
         privacy.setWordWrap(True); privacy.setStyleSheet(f"color:{theme.MUTED}"); p.addWidget(privacy); l.addWidget(pc)
 
         ap=Card(); al=QVBoxLayout(ap); al.setContentsMargins(20,18,20,18); al.setSpacing(7)

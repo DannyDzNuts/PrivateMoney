@@ -2,9 +2,9 @@ from datetime import date
 from .models import Account, Transaction, Budget, RecurringCharge
 
 ACCOUNTS = [
-    Account("demo-checking", "Everyday Checking", "checking", "Demo Bank", 3842.18, 3680.12, "0421"),
-    Account("demo-savings", "Savings", "savings", "Demo Bank", 8650.00, 8650.00, "1187"),
-    Account("demo-credit", "Credit Card", "credit", "Demo Card", -812.18, None, "5520"),
+    Account("local-checking", "Everyday Checking", "checking", "Local", 3842.18, 3680.12, "0421"),
+    Account("local-savings", "Savings", "savings", "Local", 8650.00, 8650.00, "1187"),
+    Account("local-credit", "Credit Card", "credit", "Local", -812.18, None, "5520"),
 ]
 
 TRANSACTIONS = [

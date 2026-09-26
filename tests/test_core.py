@@ -17,7 +17,7 @@ class CoreTests(unittest.TestCase):
         with urllib.request.urlopen(self.api.base_url+"/api/v1/health") as r:
             body=json.load(r)
         self.assertEqual(body["status"],"ok")
-        self.assertEqual(body["version"],"0.3.0")
+        self.assertEqual(body["version"],"0.3.1")
 
     def test_finance_requires_bearer(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
@@ -28,7 +28,7 @@ class CoreTests(unittest.TestCase):
         req=urllib.request.Request(self.api.base_url+"/api/v1/summary",headers={"Authorization":"Bearer test-token"})
         with urllib.request.urlopen(req) as r:
             body=json.load(r)
-        self.assertIn("net_worth",body); self.assertEqual(body["source"],"demo")
+        self.assertIn("net_worth",body); self.assertEqual(body["source"],"local")
 
 
 

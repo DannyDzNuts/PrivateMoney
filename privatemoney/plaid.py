@@ -16,7 +16,7 @@ class PlaidBridge:
     """Minimal Plaid client for a single-user local desktop app.
 
     Credentials, access tokens, and sync cursors are intentionally kept in memory only
-    in this demo build. Nothing sensitive is written to disk.
+    in the current development build. Nothing sensitive is written to disk.
     """
     HOSTS = {
         "Sandbox": "https://sandbox.plaid.com",

@@ -65,7 +65,7 @@ class MainWindow(QMainWindow):
         # Plaid status changes independently of finance-state updates while Link is open.
         settings=self.pages[-1]
         settings.refresh()
-        self.mode_label.setText("PLAID SESSION · IN-MEMORY" if self.state.source=="plaid" else "DEMO DATA · NOTHING PERSISTED")
+        self.mode_label.setText("PLAID CONNECTED · SESSION ONLY" if self.state.source=="plaid" else "LOCAL MODE · SESSION ONLY")
 
     def closeEvent(self,event):
         self.api.stop()

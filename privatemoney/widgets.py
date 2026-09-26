@@ -27,7 +27,7 @@ class MetricCard(Card):
         layout.addWidget(self.delta_label)
         self.set_delta(delta, positive)
         layout.addStretch(1)
-        self.setMinimumHeight(112)
+        self.setMinimumHeight(96)
 
     def set_value(self, value: str):
         self.value_label.setText(value)
