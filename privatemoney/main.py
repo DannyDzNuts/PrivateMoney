@@ -29,7 +29,6 @@ from .pages import (
     BudgetsPage,
     DashboardPage,
     RecurringPage,
-    ReportsPage,
     SettingsPage,
     TransactionsPage,
 )
@@ -317,10 +316,9 @@ class MainWindow(QMainWindow):
         self.pages = [
             DashboardPage(self.state),
             AccountsPage(self.state),
-            TransactionsPage(self.state, self.vault),
             BudgetsPage(self.state),
             RecurringPage(self.state),
-            ReportsPage(self.state),
+            TransactionsPage(self.state, self.vault),
             SettingsPage(
                 self.state,
                 self.api,
@@ -385,10 +383,9 @@ class MainWindow(QMainWindow):
         items = [
             ("Overview", "⌂"),
             ("Accounts", "▣"),
-            ("Transactions", "↕"),
             ("Budgets", "◫"),
             ("Recurring", "↻"),
-            ("Reports", "⌗"),
+            ("Transactions", "⌗"),
             ("Settings", "⚙"),
         ]
         self.nav_buttons = []
