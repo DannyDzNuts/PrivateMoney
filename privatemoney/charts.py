@@ -167,28 +167,70 @@ class _PieCanvas(ChartBase):
     def __init__(self, segments, parent=None):
         super().__init__(parent)
         self.segments = list(segments)
-        self.setMinimumWidth(170)
+        self.setMinimumWidth(360)
+        self.setMinimumHeight(245)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
     def set_segments(self, segments):
         self.segments = list(segments)
         self.update()
 
-    def paintEvent(self, event):
-        if not self.segments:
+    @staticmethod
+    def _distribute_labels(rows, top, bottom, gap=19.0):
+        rows.sort(key=lambda item: item["desired_y"])
+        if not rows:
             return
+
+        cursor = top
+        for row in rows:
+            row["label_y"] = max(float(row["desired_y"]), cursor)
+            cursor = row["label_y"] + gap
+
+        overflow = rows[-1]["label_y"] - bottom
+        if overflow > 0:
+            for row in rows:
+                row["label_y"] -= overflow
+
+        cursor = bottom
+        for row in reversed(rows):
+            row["label_y"] = min(row["label_y"], cursor)
+            cursor = row["label_y"] - gap
+
+    def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        total = sum(value for _, value in self.segments) or 1.0
-        side = max(90, min(self.height() - 42, self.width() - 42, 190))
-        base = QRectF((self.width() - side) / 2, (self.height() - side) / 2, side, side)
+
+        if not self.segments:
+            painter.setPen(QColor(theme.MUTED))
+            painter.drawText(self.rect(), Qt.AlignCenter, "No spending data")
+            return
+
+        total = sum(max(0.0, float(value)) for _, value in self.segments) or 1.0
+        side = max(
+            110.0,
+            min(float(self.height() - 42), float(self.width()) * .48, 220.0),
+        )
+        center_x = self.width() / 2.0
+        center_y = self.height() / 2.0
+        base = QRectF(
+            center_x - side / 2.0,
+            center_y - side / 2.0,
+            side,
+            side,
+        )
+        radius = side / 2.0
 
         start_deg = 90.0
-        explode = max(4.0, min(8.0, side * .035))
-        for index, (_, value) in enumerate(self.segments):
-            span_deg = -(float(value) / total * 360.0)
+        geometry = []
+        for index, (label, value) in enumerate(self.segments):
+            value = max(0.0, float(value))
+            fraction = value / total
+            span_deg = -(fraction * 360.0)
             mid_deg = start_deg + span_deg / 2.0
             angle = math.radians(mid_deg)
+
+            # Larger slices sit visibly farther from the center.
+            explode = 4.0 + 34.0 * (fraction ** .75)
             dx = explode * math.cos(angle)
             dy = -explode * math.sin(angle)
             pie_rect = base.translated(dx, dy)
@@ -196,109 +238,87 @@ class _PieCanvas(ChartBase):
             painter.setPen(QPen(QColor(theme.CARD), 2.0))
             painter.setBrush(QColor(PALETTE[index % len(PALETTE)]))
             painter.drawPie(pie_rect, int(start_deg * 16), int(span_deg * 16))
+
+            percent_radius = radius * .56
+            percent_x = center_x + dx + percent_radius * math.cos(angle)
+            percent_y = center_y + dy - percent_radius * math.sin(angle)
+            percent_font = QFont(self.font())
+            percent_font.setPointSize(9 if fraction >= .08 else 8)
+            percent_font.setBold(True)
+            painter.setFont(percent_font)
+            painter.setPen(QColor(theme.IVORY))
+            painter.drawText(
+                QRectF(percent_x - 30, percent_y - 10, 60, 20),
+                Qt.AlignCenter,
+                f"{fraction:.0%}",
+            )
+
+            anchor_x = center_x + dx + radius * .94 * math.cos(angle)
+            anchor_y = center_y + dy - radius * .94 * math.sin(angle)
+            elbow_x = center_x + dx + (radius + 18.0) * math.cos(angle)
+            desired_y = center_y + dy - (radius + 28.0) * math.sin(angle)
+            geometry.append({
+                "label": str(label),
+                "right": math.cos(angle) >= 0,
+                "anchor_x": anchor_x,
+                "anchor_y": anchor_y,
+                "elbow_x": elbow_x,
+                "desired_y": desired_y,
+            })
             start_deg += span_deg
 
+        left = [row for row in geometry if not row["right"]]
+        right = [row for row in geometry if row["right"]]
+        self._distribute_labels(left, 14.0, self.height() - 14.0)
+        self._distribute_labels(right, 14.0, self.height() - 14.0)
 
-class _LegendScrollArea(QScrollArea):
-    def wheelEvent(self, event):
-        super().wheelEvent(event)
-        event.accept()
+        leader_pen = QPen(QColor(theme.MUTED), 1.2)
+        label_font = QFont(self.font())
+        label_font.setPointSize(9)
+        label_font.setBold(True)
+        painter.setFont(label_font)
+        painter.setPen(leader_pen)
+
+        for row in geometry:
+            y = row["label_y"]
+            painter.drawLine(
+                QPointF(row["anchor_x"], row["anchor_y"]),
+                QPointF(row["elbow_x"], y),
+            )
+
+            if row["right"]:
+                line_end = min(self.width() - 86.0, max(row["elbow_x"] + 10.0, center_x + radius + 34.0))
+                painter.drawLine(QPointF(row["elbow_x"], y), QPointF(line_end, y))
+                text_rect = QRectF(line_end + 6.0, y - 10.0, self.width() - line_end - 12.0, 20.0)
+                flags = Qt.AlignLeft | Qt.AlignVCenter
+            else:
+                line_end = max(86.0, min(row["elbow_x"] - 10.0, center_x - radius - 34.0))
+                painter.drawLine(QPointF(row["elbow_x"], y), QPointF(line_end, y))
+                text_rect = QRectF(6.0, y - 10.0, line_end - 12.0, 20.0)
+                flags = Qt.AlignRight | Qt.AlignVCenter
+
+            painter.setPen(QColor(theme.IVORY))
+            painter.drawText(text_rect, flags, row["label"])
+            painter.setPen(leader_pen)
 
 
 class DonutChart(QWidget):
-    """Exploded full-slice pie chart with an independently scrollable legend."""
+    """Exploded full-slice pie chart with in-slice percentages and leader labels."""
 
     def __init__(self, segments, parent=None):
         super().__init__(parent)
         self.segments = list(segments)
-        self.setMinimumHeight(175)
+        self.setMinimumHeight(245)
         self.setStyleSheet("background: transparent;")
 
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
-
         self.canvas = _PieCanvas(self.segments)
-        layout.addWidget(self.canvas, 3)
-
-        self.legend_scroll = _LegendScrollArea()
-        self.legend_scroll.setObjectName("LegendScroll")
-        self.legend_scroll.setFrameShape(QFrame.NoFrame)
-        self.legend_scroll.setWidgetResizable(True)
-        self.legend_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.legend_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.legend_scroll.setMinimumWidth(180)
-        self.legend_scroll.setStyleSheet(
-            "QScrollArea { background: transparent; border: 0; }"
-            "QScrollArea > QWidget > QWidget { background: transparent; }"
-        )
-        self.legend_scroll.viewport().setStyleSheet("background: transparent;")
-
-        self.legend_host = QWidget()
-        self.legend_host.setStyleSheet("background: transparent;")
-        self.legend_layout = QVBoxLayout(self.legend_host)
-        self.legend_layout.setContentsMargins(4, 4, 6, 4)
-        self.legend_layout.setSpacing(10)
-        self.legend_scroll.setWidget(self.legend_host)
-        layout.addWidget(self.legend_scroll, 2)
-
-        self._rebuild_legend()
+        layout.addWidget(self.canvas, 1)
 
     def set_segments(self, segments):
         self.segments = list(segments)
         self.canvas.set_segments(self.segments)
-        self._rebuild_legend()
-
-    def _clear_legend(self):
-        while self.legend_layout.count():
-            item = self.legend_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-
-    def _rebuild_legend(self):
-        self._clear_legend()
-        total = sum(value for _, value in self.segments) or 1
-        if not self.segments:
-            empty = QLabel("No spending data")
-            empty.setStyleSheet(f"color:{theme.MUTED}; background:transparent;")
-            self.legend_layout.addWidget(empty)
-            self.legend_layout.addStretch()
-            return
-
-        for index, (label, value) in enumerate(self.segments):
-            row = QFrame()
-            row.setStyleSheet("background: transparent; border: 0;")
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(0, 2, 0, 2)
-            row_layout.setSpacing(9)
-
-            swatch = QLabel()
-            swatch.setFixedSize(9, 9)
-            swatch.setStyleSheet(
-                f"background:{PALETTE[index % len(PALETTE)]}; border-radius:2px;"
-            )
-            row_layout.addWidget(swatch, 0, Qt.AlignTop)
-
-            text = QWidget()
-            text.setStyleSheet("background: transparent;")
-            text_layout = QVBoxLayout(text)
-            text_layout.setContentsMargins(0, 0, 0, 0)
-            text_layout.setSpacing(2)
-
-            name = QLabel(str(label))
-            name.setWordWrap(True)
-            name.setStyleSheet(
-                f"color:{theme.IVORY}; font-weight:650; background:transparent;"
-            )
-            detail = QLabel("$" + f"{value:,.0f}" + "  ·  " + f"{value / total:.0%}")
-            detail.setStyleSheet(f"color:{theme.MUTED}; background:transparent;")
-            text_layout.addWidget(name)
-            text_layout.addWidget(detail)
-            row_layout.addWidget(text, 1)
-            self.legend_layout.addWidget(row)
-
-        self.legend_layout.addStretch(1)
 
 
 class CashFlowChart(ChartBase):
