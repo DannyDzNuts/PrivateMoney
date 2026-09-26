@@ -18,6 +18,16 @@ PrivateMoney now includes an encrypted SQLCipher vault for local persistence. Th
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.11
+
+- Overview net worth adds a straight best-fit trajectory line: green for upward trend, red for downward trend
+- Accounts gives the nickname editor substantially more width
+- Category filtering is now a fixed-width in-field tag control with removable tags, persistent drop arrow, search, and horizontal wheel scrolling
+- Transactions filters are a collapsible card: common filters remain visible and date/dollar filters expand on demand
+- Bulk-categorization merchant/category controls ignore mouse-wheel changes
+- Recurring adds sortable history metrics for first seen, age, price, total spent, cadence frequency, occurrence count, and next due date
+- Recurring history metrics are derived from the underlying matched transactions rather than only the next predicted charge
+
 ## Added in 0.10
 
 - Overview gives the category pie and Budgets more horizontal room while Net worth and Cash flow share the narrower width
