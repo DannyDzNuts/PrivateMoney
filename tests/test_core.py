@@ -57,7 +57,7 @@ class CoreTests(unittest.TestCase):
 
         self.assertEqual(result["link_token"],"link-production-test")
         self.assertEqual(captured["url"],"https://production.plaid.com/link/token/create")
-        self.assertEqual(captured["user_agent"],"PrivateMoney/0.5.5")
+        self.assertEqual(captured["user_agent"],"PrivateMoney/0.6.0")
         self.assertEqual(captured["client_id"],"client-id")
         self.assertEqual(captured["secret"],"production-secret")
 

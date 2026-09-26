@@ -86,6 +86,13 @@ class VaultTests(unittest.TestCase):
                     "transactions": {},
                     "institution_name": "Test Bank",
                 }
+                plaid._items["item-id-2"] = {
+                    "access_token": "access-token-2",
+                    "cursor": "cursor-value-2",
+                    "accounts": [],
+                    "transactions": {},
+                    "institution_name": "Second Bank",
+                }
 
             profile={"amount_mode":"split","debit_col":"Debit","credit_col":"Credit"}
             vault.save_import_profile("headersig", profile)
@@ -109,9 +116,12 @@ class VaultTests(unittest.TestCase):
             session = restored_plaid.session_snapshot()
             self.assertEqual(session["client_id"], "client-id")
             self.assertEqual(session["secret"], "secret-value")
-            self.assertEqual(len(session["items"]), 1)
-            self.assertEqual(session["items"][0]["access_token"], "access-token")
-            self.assertEqual(session["items"][0]["cursor"], "cursor-value")
+            self.assertEqual(len(session["items"]), 2)
+            restored_items={item["item_id"]:item for item in session["items"]}
+            self.assertEqual(restored_items["item-id"]["access_token"], "access-token")
+            self.assertEqual(restored_items["item-id"]["cursor"], "cursor-value")
+            self.assertEqual(restored_items["item-id-2"]["access_token"], "access-token-2")
+            self.assertEqual(restored_items["item-id-2"]["cursor"], "cursor-value-2")
             vault.lock()
 
 
