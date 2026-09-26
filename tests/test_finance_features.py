@@ -40,6 +40,38 @@ class FinanceFeatureTests(unittest.TestCase):
         )
         self.assertEqual(state.transactions()[0].category,"Dining")
 
+    def test_account_nickname_survives_plaid_refresh(self):
+        state=FinanceState()
+        account=Account("a","Checking","checking","Bank",100.0,90.0,"1")
+        state.restore_snapshot({
+            "source":"plaid","accounts":[account],"transactions":[],
+            "budgets":[],"recurring":[],"net_worth":[],"cashflow":[],
+        })
+        self.assertTrue(state.set_account_nickname("a","Daily"))
+        self.assertEqual(state.account_display_name("Checking"),"Daily")
+        state.replace_with_plaid(
+            [Account("a","Checking","checking","Bank",110.0,100.0,"1")],
+            [],
+        )
+        self.assertEqual(state.accounts()[0].nickname,"Daily")
+        self.assertEqual(state.account_display_name("Checking"),"Daily")
+
+    def test_bulk_merchant_category_updates_all_matching_transactions(self):
+        state=FinanceState()
+        rows=[
+            Transaction(date(2026,9,1),"YouTube Premium","Other","Checking",-13.99,False,"y1"),
+            Transaction(date(2026,8,1),"youtube premium","Other","Checking",-13.99,False,"y2"),
+            Transaction(date(2026,9,2),"Other Merchant","Other","Checking",-5.0,False,"o1"),
+        ]
+        state.restore_snapshot({
+            "source":"local","accounts":[Account("a","Checking","checking","Bank",100.0,100.0,"1")],
+            "transactions":rows,"budgets":[],"recurring":[],"net_worth":[],"cashflow":[],
+        })
+        self.assertEqual(state.bulk_set_merchant_category("YOUTUBE PREMIUM","Subscriptions"),2)
+        youtube=[tx for tx in state.transactions() if tx.merchant.casefold()=="youtube premium"]
+        self.assertTrue(all(tx.category=="Subscriptions" for tx in youtube))
+        self.assertEqual(next(tx for tx in state.transactions() if tx.merchant=="Other Merchant").category,"Other")
+
     def test_recurring_monthly_pattern_detection(self):
         state=FinanceState()
         transactions=[
