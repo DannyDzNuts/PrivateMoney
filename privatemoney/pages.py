@@ -257,7 +257,9 @@ class StatementImportDialog(QDialog):
         account_row=QHBoxLayout()
         self.account_label=QLabel("Import to account")
         account_row.addWidget(self.account_label)
-        self.account=QComboBox(); self.account.setEditable(True); self.account.addItems([a.name for a in state.accounts()]); self.account.setPlaceholderText("Account name")
+        self.account=QComboBox(); self.account.setEditable(True); self.account.setPlaceholderText("Account name")
+        for existing in state.accounts():
+            self.account.addItem((existing.nickname or "").strip() or existing.name, existing.name)
         self.account.currentTextChanged.connect(self._refresh_preview)
         account_row.addWidget(self.account,1); l.addLayout(account_row)
 
@@ -380,6 +382,13 @@ class StatementImportDialog(QDialog):
             self.profile_note.setText("Mapping changed. Save it as the default for this CSV format if it looks right.")
         self._refresh_preview()
 
+    def _account_target(self):
+        text=self.account.currentText().strip()
+        index=self.account.findText(text)
+        if index >= 0:
+            return self.account.itemData(index) or text
+        return text
+
     def _profile(self):
         return {
             "date_col":self._value(self.date_col),
@@ -437,7 +446,7 @@ class StatementImportDialog(QDialog):
         self.rows=rows; self.skipped=skipped
         shown=rows[:12]; self.preview.setRowCount(len(shown))
         for r,row in enumerate(shown):
-            target=(row.account_hint or self.account.currentText().strip()) if self.use_account_column.isChecked() else self.account.currentText().strip()
+            target=(row.account_hint or self._account_target()) if self.use_account_column.isChecked() else self._account_target()
             vals=[row.posted.strftime("%b %d, %Y"),row.merchant,money(row.amount_cents/100),target or "—"]
             for c,val in enumerate(vals):
                 item=QTableWidgetItem(val)
@@ -447,7 +456,7 @@ class StatementImportDialog(QDialog):
         suffix=f" · {skipped} skipped" if skipped else ""
         kind="CSV" if self.file_type=="csv" else "QFX / OFX"
         self.summary.setText(f"{len(rows)} valid {kind} transactions{suffix}. Showing the first {len(shown)}.")
-        has_target=bool(self.account.currentText().strip()) or (
+        has_target=bool(self._account_target()) or (
             self.use_account_column.isChecked() and any(r.account_hint for r in rows)
         )
         self.import_btn.setEnabled(bool(rows and has_target and self.vault.unlocked))
@@ -456,7 +465,7 @@ class StatementImportDialog(QDialog):
         if not self.vault.unlocked:
             QMessageBox.warning(self,"Import statement","Unlock PrivateMoney before importing."); return
         result=self.state.import_transactions(
-            self.account.currentText(),
+            self._account_target(),
             self.rows,
             use_account_column=(self.file_type=="csv" and self.use_account_column.isChecked()),
         )
