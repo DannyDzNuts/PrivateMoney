@@ -73,7 +73,10 @@ class PasswordDialog(QDialog):
         self.password = QLineEdit()
         self.password.setEchoMode(QLineEdit.Password)
         self.password.setPlaceholderText("Password")
-        self.password.returnPressed.connect(self._submit)
+        if mode == "create":
+            self.password.returnPressed.connect(self._focus_confirmation)
+        else:
+            self.password.returnPressed.connect(self._submit)
         layout.addWidget(self.password)
 
         self.confirm = None
@@ -94,6 +97,8 @@ class PasswordDialog(QDialog):
         if mode == "unlock":
             forgot = QPushButton("FORGOT PASSWORD")
             forgot.setObjectName("Danger")
+            forgot.setMinimumWidth(170)
+            forgot.setMinimumHeight(38)
             forgot.clicked.connect(self._forgot_password)
             buttons.addWidget(forgot)
         buttons.addStretch()
@@ -111,6 +116,11 @@ class PasswordDialog(QDialog):
 
         QTimer.singleShot(0, self.password.setFocus)
 
+    def _focus_confirmation(self):
+        if self.confirm is not None:
+            self.confirm.setFocus()
+            self.confirm.selectAll()
+
     def _forgot_password(self):
         self.forgot_requested = True
         self.reject()
@@ -119,21 +129,28 @@ class PasswordDialog(QDialog):
         value = self.password.text()
         if self.mode == "create":
             if len(value) < 10:
-                self._show_error("Use at least 10 characters.")
+                self._show_error("Use at least 10 characters.", self.password)
                 return
-            if self.confirm is None or value != self.confirm.text():
-                self._show_error("The passwords do not match.")
+            confirmation = self.confirm.text() if self.confirm is not None else ""
+            if not confirmation:
+                self._show_error("Enter the password again to confirm it.", self.confirm)
+                return
+            if value != confirmation:
+                self._show_error("The passwords do not match.", self.confirm)
                 return
         elif not value:
-            self._show_error("Enter your password.")
+            self._show_error("Enter your password.", self.password)
             return
+        self.error.hide()
         self.accept()
 
-    def _show_error(self, message: str):
+    def _show_error(self, message: str, field=None):
         self.error.setText(message)
         self.error.show()
-        self.password.selectAll()
-        self.password.setFocus()
+        target = field or self.password
+        if target is not None:
+            target.selectAll()
+            target.setFocus()
 
     @property
     def value(self) -> str:
@@ -145,7 +162,7 @@ class DestructiveConfirmDialog(QDialog):
         super().__init__(parent)
         self.setModal(True)
         self.setObjectName("PasswordDialog")
-        self.setMinimumWidth(470)
+        self.setMinimumWidth(540)
         self.setWindowTitle(title)
 
         layout=QVBoxLayout(self); layout.setContentsMargins(24,24,24,22); layout.setSpacing(12)
@@ -154,13 +171,13 @@ class DestructiveConfirmDialog(QDialog):
         warning=QLabel("This cannot be undone."); warning.setStyleSheet("color:#FF8E9A;font-weight:700;"); layout.addWidget(warning)
 
         buttons=QHBoxLayout(); buttons.addStretch()
-        cancel=QPushButton("Cancel"); cancel.setObjectName("Secondary"); cancel.clicked.connect(self.reject); buttons.addWidget(cancel)
-        delete=QPushButton("DELETE DATA"); delete.setObjectName("Danger"); delete.clicked.connect(self.accept); buttons.addWidget(delete)
+        cancel=QPushButton("Cancel"); cancel.setObjectName("Secondary"); cancel.setMinimumWidth(100); cancel.setMinimumHeight(38); cancel.clicked.connect(self.reject); buttons.addWidget(cancel)
+        delete=QPushButton("DELETE DATA"); delete.setObjectName("Danger"); delete.setMinimumWidth(145); delete.setMinimumHeight(38); delete.clicked.connect(self.accept); buttons.addWidget(delete)
         layout.addLayout(buttons)
 
 
 class VaultToggleButton(QPushButton):
-    """Vector-drawn lock control so Linux font support cannot hide the icon."""
+    """Minimal vector lock icon matching the Midnight Violet UI."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -179,25 +196,27 @@ class VaultToggleButton(QPushButton):
         super().paintEvent(event)
         painter=QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QPen(QColor("#F5F2FA"),2.1,Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin))
+        pen=QPen(QColor("#D8D3DF"),1.7,Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin)
+        painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
-        painter.drawRoundedRect(QRectF(12,17,14,11),2.5,2.5)
+
+        # Clean rectangular body; no keyhole or decorative details.
+        painter.drawRoundedRect(QRectF(11.5,17.0,15.0,11.0),1.8,1.8)
 
         path=QPainterPath()
         if self._unlocked:
-            path.moveTo(15,17)
-            path.lineTo(15,14)
-            path.cubicTo(15,10,17.5,7.5,21,7.5)
-            path.cubicTo(24,7.5,26,9.5,26,12)
+            # One side lifted, but still uses the same simple geometry.
+            path.moveTo(14.5,17.0)
+            path.lineTo(14.5,13.2)
+            path.cubicTo(14.5,9.9,16.8,8.0,19.7,8.0)
+            path.cubicTo(22.0,8.0,23.8,9.2,24.6,11.2)
         else:
-            path.moveTo(15,17)
-            path.lineTo(15,13.5)
-            path.cubicTo(15,9.5,17.5,7.5,20,7.5)
-            path.cubicTo(22.5,7.5,25,9.5,25,13.5)
-            path.lineTo(25,17)
+            path.moveTo(14.5,17.0)
+            path.lineTo(14.5,13.0)
+            path.cubicTo(14.5,9.8,16.8,8.0,19.0,8.0)
+            path.cubicTo(21.2,8.0,23.5,9.8,23.5,13.0)
+            path.lineTo(23.5,17.0)
         painter.drawPath(path)
-        painter.drawEllipse(QRectF(18.4,20.4,3.2,3.2))
-        painter.drawLine(20,23.6,20,26)
 
 
 class NavigationPane(QFrame):

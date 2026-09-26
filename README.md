@@ -18,6 +18,16 @@ PrivateMoney now includes an encrypted SQLCipher vault for local persistence. Th
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
 
+## Added in 0.5.3
+
+- Password creation stays open and warns inline when confirmation is missing or mismatched
+- Enter in the first password field advances to confirmation instead of prematurely submitting
+- Destructive confirmation and forgot-password buttons have stable readable sizing
+- Simplified geometric lock/unlock icon and quieter top-bar button styling
+- Import customization panel has stable field widths and transparent card-matched background
+- Import customization scrolls internally instead of forcing the whole dialog off-screen
+- Removed the Appearance description from Settings
+
 ## Added in 0.5.2
 
 - Vector-drawn persistent lock/unlock icon that does not depend on emoji font support

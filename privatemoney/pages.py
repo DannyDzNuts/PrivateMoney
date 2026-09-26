@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QTableWidget, QTableWidgetItem,
+    QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget
 )
 from .charts import CashFlowChart, DonutChart, LineChart
@@ -103,7 +103,13 @@ class StatementImportDialog(QDialog):
         self.header_signature=None
         self.setWindowTitle("Import statement")
         self.setObjectName("PasswordDialog")
-        self.resize(800,650)
+        screen=QApplication.primaryScreen()
+        available=screen.availableGeometry() if screen is not None else None
+        max_w=max(720, (available.width()-80) if available is not None else 900)
+        max_h=max(560, (available.height()-80) if available is not None else 760)
+        self.setMinimumSize(min(720,max_w), min(560,max_h))
+        self.setMaximumSize(max_w,max_h)
+        self.resize(min(820,max_w), min(700,max_h))
 
         l=QVBoxLayout(self); l.setContentsMargins(22,22,22,22); l.setSpacing(12)
         title=QLabel("Import statement"); title.setObjectName("SectionTitle"); l.addWidget(title)
@@ -116,8 +122,13 @@ class StatementImportDialog(QDialog):
         file_row.addWidget(self.file,1); file_row.addWidget(browse); l.addLayout(file_row)
 
         self.mapping_widget=QWidget()
-        mapping=QVBoxLayout(self.mapping_widget); mapping.setContentsMargins(0,0,0,0); mapping.setSpacing(9)
-        grid=QGridLayout(); grid.setHorizontalSpacing(12); grid.setVerticalSpacing(8)
+        self.mapping_widget.setObjectName("ImportMappingPanel")
+        self.mapping_widget.setStyleSheet("QWidget#ImportMappingPanel { background: transparent; }")
+        self.mapping_widget.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Preferred)
+        mapping=QVBoxLayout(self.mapping_widget); mapping.setContentsMargins(10,8,10,8); mapping.setSpacing(10)
+        grid=QGridLayout(); grid.setHorizontalSpacing(16); grid.setVerticalSpacing(10)
+        grid.setColumnMinimumWidth(0,180)
+        grid.setColumnStretch(1,1)
 
         self.date_col=QComboBox()
         self.desc_col=QComboBox()
@@ -129,6 +140,12 @@ class StatementImportDialog(QDialog):
         self.credit_col=QComboBox()
         self.account_col=QComboBox()
         self.balance_col=QComboBox()
+        for combo in (
+            self.date_col,self.desc_col,self.amount_mode,self.amount_col,
+            self.debit_col,self.credit_col,self.account_col,self.balance_col,
+        ):
+            combo.setMinimumWidth(330)
+            combo.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed)
 
         grid.addWidget(QLabel("Date"),0,0); grid.addWidget(self.date_col,0,1)
         grid.addWidget(QLabel("Description"),1,0); grid.addWidget(self.desc_col,1,1)
@@ -153,12 +170,27 @@ class StatementImportDialog(QDialog):
         mapping.addWidget(self.use_account_column)
 
         profile_row=QHBoxLayout()
-        self.profile_note=QLabel(); self.profile_note.setStyleSheet(f"color:{theme.MUTED}")
+        self.profile_note=QLabel(); self.profile_note.setWordWrap(True); self.profile_note.setMinimumWidth(0); self.profile_note.setStyleSheet(f"color:{theme.MUTED}")
         self.save_default=QPushButton("Save as default"); self.save_default.setObjectName("Secondary"); self.save_default.clicked.connect(self._save_default)
         profile_row.addWidget(self.profile_note,1); profile_row.addWidget(self.save_default)
         mapping.addLayout(profile_row)
-        l.addWidget(self.mapping_widget)
-        self.mapping_widget.hide()
+
+        self.mapping_scroll=QScrollArea()
+        self.mapping_scroll.setObjectName("ImportMappingScroll")
+        self.mapping_scroll.setFrameShape(QFrame.NoFrame)
+        self.mapping_scroll.setWidgetResizable(True)
+        self.mapping_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.mapping_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.mapping_scroll.setMaximumHeight(335)
+        self.mapping_scroll.setMinimumHeight(250)
+        self.mapping_scroll.setStyleSheet(
+            "QScrollArea#ImportMappingScroll { background: transparent; border: 0; }"
+            "QScrollArea#ImportMappingScroll > QWidget > QWidget { background: transparent; }"
+        )
+        self.mapping_scroll.viewport().setStyleSheet("background: transparent;")
+        self.mapping_scroll.setWidget(self.mapping_widget)
+        l.addWidget(self.mapping_scroll)
+        self.mapping_scroll.hide()
 
         account_row=QHBoxLayout()
         self.account_label=QLabel("Import to account")
@@ -220,10 +252,10 @@ class StatementImportDialog(QDialog):
             self.account.setEditText(Path(path).stem.replace("_"," ").replace("-"," ").title())
 
         if suffix != ".csv":
-            self.file_type="ofx"; self.mapping_widget.hide(); self.account_label.setText("Import to account")
+            self.file_type="ofx"; self.mapping_scroll.hide(); self.account_label.setText("Import to account")
             self._refresh_preview(); return
 
-        self.file_type="csv"; self.mapping_widget.show()
+        self.file_type="csv"; self.mapping_scroll.show()
         try:
             headers=read_csv_headers(path)
             if not headers: raise ValueError("This CSV does not contain a header row.")
@@ -305,7 +337,7 @@ class StatementImportDialog(QDialog):
             QMessageBox.information(self,"Save as default","Finish a valid mapping first."); return
         try:
             self.vault.save_import_profile(self.header_signature,self._profile())
-            self.profile_note.setText("Saved as the default for CSVs with these columns.")
+            self.profile_note.setText("Default saved for this CSV layout.")
         except Exception as exc:
             QMessageBox.warning(self,"Save as default",str(exc))
 
@@ -504,10 +536,7 @@ class SettingsPage(QScrollArea):
         disable_dev=QPushButton("Disable Developer Settings"); disable_dev.setObjectName("Secondary"); disable_dev.clicked.connect(self._disable_developer_settings)
         a.addWidget(disable_dev,0,Qt.AlignLeft); self.api_card.hide(); l.addWidget(self.api_card)
 
-        ap=Card(); al=QVBoxLayout(ap); al.setContentsMargins(20,18,20,18); al.setSpacing(7)
-        x=QLabel("Appearance"); x.setObjectName("SectionTitle"); al.addWidget(x)
-        al.addWidget(QLabel("Midnight Violet")); detail=QLabel("OLED black · charcoal cards · deep violet surfaces · violet accent · ivory text"); detail.setStyleSheet(f"color:{theme.MUTED}"); al.addWidget(detail)
-        l.addWidget(ap); l.addStretch(); self.refresh()
+        l.addStretch(); self.refresh()
 
     def _copy_curl(self):
         QApplication.clipboard().setText(f'curl -H "Authorization: Bearer {self.api_token}" {self.api_server.base_url}/api/v1/summary')

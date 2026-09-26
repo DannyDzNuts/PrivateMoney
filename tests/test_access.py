@@ -8,7 +8,7 @@ os.environ["PRIVATE_MONEY_TESTING"] = "1"
 
 from PySide6.QtWidgets import QApplication
 
-from privatemoney.main import MainWindow
+from privatemoney.main import MainWindow, PasswordDialog
 from privatemoney.models import Account
 
 
@@ -16,6 +16,23 @@ class AccessFlowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+
+    def test_create_password_validation_stays_open(self):
+        dialog=PasswordDialog("create")
+        try:
+            dialog.password.setText("correct horse battery staple")
+            dialog.confirm.setText("")
+            dialog._submit()
+            self.assertEqual(dialog.result(),0)
+            self.assertTrue(dialog.error.isVisible() or bool(dialog.error.text()))
+            self.assertIn("confirm",dialog.error.text().lower())
+
+            dialog.confirm.setText("different password")
+            dialog._submit()
+            self.assertEqual(dialog.result(),0)
+            self.assertIn("do not match",dialog.error.text().lower())
+        finally:
+            dialog.close()
 
     def test_lock_clears_visible_state_and_unlock_restores_it(self):
         previous = os.environ.get("XDG_DATA_HOME")

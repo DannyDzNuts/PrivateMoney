@@ -19,8 +19,9 @@ QLabel {{ background: transparent; }}
 QMainWindow {{ background: {BLACK}; }}
 QFrame#Sidebar {{ background: {CHARCOAL}; border-right: 1px solid {OUTLINE}; }}
 QFrame#TopBar {{ background: {BLACK}; border-bottom: 1px solid {OUTLINE}; }}
-QPushButton#VaultToggle {{ background: {CHARCOAL}; color: {IVORY}; border: 1px solid {OUTLINE}; border-radius: 10px; font-size: 18px; padding: 0; }}
-QPushButton#VaultToggle:hover {{ background: {DEEP_VIOLET}; border-color: {VIOLET}; }}
+QPushButton#VaultToggle {{ background: transparent; color: {IVORY}; border: 0; border-radius: 8px; padding: 0; }}
+QPushButton#VaultToggle:hover {{ background: {CARD_HOVER}; }}
+QPushButton#VaultToggle:pressed {{ background: {DEEP_VIOLET}; }}
 QDialog#PasswordDialog {{ background: {CARD}; }}
 QLabel#Brand {{ font-size: 20px; font-weight: 700; color: {IVORY}; }}
 QLabel#Eyebrow {{ color: {MUTED}; font-size: 11px; font-weight: 600; }}
