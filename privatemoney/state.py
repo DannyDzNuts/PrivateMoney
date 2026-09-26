@@ -51,6 +51,27 @@ class FinanceState:
         with self._lock:
             return list(self._accounts)
 
+    def account_display_name(self, account_name: str) -> str:
+        with self._lock:
+            for account in self._accounts:
+                if account.name == account_name:
+                    return (account.nickname or "").strip() or account.name
+            return account_name
+
+    def set_account_nickname(self, account_id: str, nickname: str):
+        nickname = nickname.strip()
+        with self._lock:
+            for account in self._accounts:
+                if account.id != account_id:
+                    continue
+                value = nickname or None
+                if account.nickname == value:
+                    return False
+                account.nickname = value
+                self._version += 1
+                return True
+        return False
+
     def transactions(self):
         with self._lock:
             return list(self._transactions)
@@ -132,6 +153,26 @@ class FinanceState:
             if not category:
                 return list(self._transactions)
             return [t for t in self._transactions if t.category == category]
+
+    def bulk_set_merchant_category(self, merchant: str, category: str):
+        merchant_key = merchant.strip().casefold()
+        category = category.strip() or "Other"
+        if not merchant_key:
+            return 0
+        with self._lock:
+            changed = 0
+            for tx in self._transactions:
+                if tx.merchant.strip().casefold() != merchant_key:
+                    continue
+                if tx.category == category:
+                    continue
+                tx.category = category
+                changed += 1
+            if changed:
+                self._spending = self._derive_spending(self._transactions)
+                self._recurring = self._derive_recurring(self._transactions)
+                self._version += 1
+            return changed
 
     def set_transaction_category(self, transaction: Transaction, category: str):
         category = category.strip() or "Other"
@@ -283,9 +324,16 @@ class FinanceState:
                 for t in self._transactions
                 if t.external_id and t.category
             }
+            existing_nicknames = {
+                a.id: a.nickname
+                for a in self._accounts
+                if a.nickname
+            }
 
             account_map = {a.id: a for a in local_accounts}
             for account in accounts:
+                if account.id in existing_nicknames:
+                    account.nickname = existing_nicknames[account.id]
                 account_map[account.id] = account
 
             tx_map = {}
