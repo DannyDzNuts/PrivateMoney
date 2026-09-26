@@ -17,7 +17,7 @@ class CoreTests(unittest.TestCase):
         with urllib.request.urlopen(self.api.base_url+"/api/v1/health") as r:
             body=json.load(r)
         self.assertEqual(body["status"],"ok")
-        self.assertEqual(body["version"],"0.3.1")
+        self.assertEqual(body["version"],"0.4.0")
 
     def test_finance_requires_bearer(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:

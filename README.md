@@ -7,7 +7,7 @@ A local-first personal finance desktop application focused on private budgeting,
 
 PrivateMoney is under active development. The current build is a desktop prototype for Linux/Nobara with a polished Midnight Violet interface, local dashboard API, local sample data, and a working Plaid Link integration scaffold.
 
-Real financial data is not persisted yet. The encrypted SQLCipher vault is the next major milestone.
+PrivateMoney now includes an encrypted SQLCipher vault for local persistence. The next persistence work is startup unlock UX, migrations, and explicit encrypted backup/export.
 
 ## Principles
 
@@ -17,6 +17,16 @@ Real financial data is not persisted yet. The encrypted SQLCipher vault is the n
 - Plaid is optional
 - Dashboard API is read-only and localhost-only by default
 - Secrets and bank credentials never belong in the repository
+
+## Added in 0.4
+
+- Mouse-wheel navigation over the left navigation pane switches pages one step at a time
+- Navigation clamps at Overview and Settings rather than wrapping unexpectedly
+- SQLCipher encrypted vault with Argon2id passphrase key derivation
+- Vault create, unlock, and lock controls in Settings
+- Encrypted persistence for finance state and Plaid developer credentials/session tokens
+- No plaintext SQLite fallback
+- Normal launches start with an empty local state; sample data is developer-only via PRIVATE_MONEY_SAMPLE_DATA=1
 
 ## Added in 0.3
 
@@ -79,13 +89,11 @@ PrivateMoney requests 180 days of transaction history to support future recurrin
 private-money
 ```
 
-## Next persistence milestone
+## Next milestones
 
-1. First-run encrypted vault creation.
-2. Argon2id key derivation / local key handling.
-3. SQLCipher persistence with no plaintext fallback.
-4. Persist Plaid Item access tokens only inside the encrypted vault.
-5. Persist `/transactions/sync` cursors and incremental transaction updates.
-6. Add QFX/OFX and CSV import wizard.
-7. Add local recurring detection and merchant/category rules.
-8. Add explicit remote API binding only if needed for the future dashboard system.
+1. Startup vault-unlock UX and schema migrations.
+2. QFX/OFX and CSV import wizard.
+3. Local recurring detection and merchant/category rules.
+4. Budget creation/editing and category management.
+5. Explicit encrypted backup/export.
+6. Optional remote API transport only when the future dashboard system needs it.

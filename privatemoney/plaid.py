@@ -56,6 +56,44 @@ class PlaidBridge:
         with self._lock:
             return self._environment
 
+    def session_snapshot(self) -> dict:
+        with self._lock:
+            return {
+                "client_id": self._client_id,
+                "secret": self._secret,
+                "environment": self._environment,
+                "access_token": self._access_token,
+                "item_id": self._item_id,
+                "cursor": self._cursor,
+            }
+
+    def restore_session(self, session: dict):
+        with self._lock:
+            self._client_id = str(session.get("client_id") or "")
+            self._secret = str(session.get("secret") or "")
+            environment = str(session.get("environment") or "Sandbox")
+            self._environment = environment if environment in self.HOSTS else "Sandbox"
+            self._access_token = str(session.get("access_token") or "")
+            self._item_id = str(session.get("item_id") or "")
+            self._cursor = session.get("cursor")
+            self._transactions.clear()
+            if self._access_token:
+                self._status = "Connected from encrypted vault · ready to refresh & sync"
+            elif self._client_id and self._secret:
+                self._status = f"API credentials restored for {self._environment} · next: Connect bank"
+            else:
+                self._status = "Not configured"
+
+    def clear_sensitive_session(self):
+        with self._lock:
+            self._client_id = ""
+            self._secret = ""
+            self._access_token = ""
+            self._item_id = ""
+            self._cursor = None
+            self._transactions.clear()
+            self._status = "Not configured"
+
     def configure(self, client_id: str, secret: str, environment: str):
         client_id = client_id.strip()
         secret = secret.strip()

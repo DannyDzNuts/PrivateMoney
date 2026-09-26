@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 from collections import defaultdict
 from datetime import date
 from threading import RLock
@@ -11,13 +12,14 @@ class FinanceState:
         self._lock = RLock()
         self._version = 0
         self._source = "local"
-        self._accounts = list(ACCOUNTS)
-        self._transactions = list(TRANSACTIONS)
-        self._budgets = list(BUDGETS)
-        self._recurring = list(RECURRING)
-        self._net_worth = list(NET_WORTH)
-        self._spending = list(SPENDING)
-        self._cashflow = list(CASHFLOW)
+        use_samples = os.environ.get("PRIVATE_MONEY_SAMPLE_DATA") == "1"
+        self._accounts = list(ACCOUNTS) if use_samples else []
+        self._transactions = list(TRANSACTIONS) if use_samples else []
+        self._budgets = list(BUDGETS) if use_samples else []
+        self._recurring = list(RECURRING) if use_samples else []
+        self._net_worth = list(NET_WORTH) if use_samples else []
+        self._spending = list(SPENDING) if use_samples else []
+        self._cashflow = list(CASHFLOW) if use_samples else []
 
     @property
     def version(self) -> int:
@@ -77,6 +79,24 @@ class FinanceState:
                 "account_count": len(self._accounts),
                 "transaction_count": len(txs),
             }
+
+    def restore_snapshot(self, snapshot: dict):
+        with self._lock:
+            self._source = snapshot.get("source") or "local"
+            self._accounts = list(snapshot.get("accounts") or [])
+            self._transactions = sorted(
+                list(snapshot.get("transactions") or []),
+                key=lambda x: x.posted,
+                reverse=True,
+            )
+            self._budgets = list(snapshot.get("budgets") or [])
+            self._recurring = list(snapshot.get("recurring") or [])
+            self._net_worth = list(snapshot.get("net_worth") or [])
+            self._spending = self._derive_spending(self._transactions)
+            self._cashflow = list(snapshot.get("cashflow") or [])
+            if not self._cashflow and self._transactions:
+                self._cashflow = self._derive_cashflow(self._transactions)
+            self._version += 1
 
     def replace_with_plaid(self, accounts: list[Account], transactions: list[Transaction]):
         with self._lock:
