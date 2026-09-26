@@ -1,12 +1,12 @@
 from __future__ import annotations
 import threading
 from datetime import date, timedelta
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Signal, Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QAbstractItemView, QCheckBox, QComboBox, QDateEdit, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget
+    QToolButton, QVBoxLayout, QWidget
 )
 from .charts import CashFlowChart, DonutChart, LineChart
 from .importers import (ACCOUNT_CANDIDATES, AMOUNT_CANDIDATES, BALANCE_CANDIDATES, CREDIT_CANDIDATES, DATE_CANDIDATES, DEBIT_CANDIDATES, DESCRIPTION_CANDIDATES, csv_header_signature, guess_column, parse_csv, parse_ofx, read_csv_headers)
@@ -77,7 +77,7 @@ class DashboardPage(QWidget):
         budgets=QWidget(); budgets.setStyleSheet("background:transparent;"); bl=QVBoxLayout(budgets); bl.setContentsMargins(0,0,0,0); bl.setSpacing(2)
         for b in state.budgets(): bl.addWidget(BudgetRow(b.category,b.spent,b.limit))
         bl.addStretch(); grid.addWidget(card_with_title("Budgets",budgets,"Current plan"),1,2)
-        grid.setColumnStretch(0,2); grid.setColumnStretch(1,2); grid.setColumnStretch(2,2)
+        grid.setColumnStretch(0,1); grid.setColumnStretch(1,1); grid.setColumnStretch(2,3)
         grid.setRowStretch(0,1); grid.setRowStretch(1,1)
         l.addLayout(grid,1)
         self.refresh()
@@ -124,19 +124,31 @@ class AccountsPage(QWidget):
         super().__init__(parent); self.state=state
         l=QVBoxLayout(self); l.setContentsMargins(28,24,28,28); l.setSpacing(16)
         l.addWidget(page_header("Accounts", "Balances across your accounts."))
-        self.table=QTableWidget(0,5); self.table.setHorizontalHeaderLabels(["Account","Type","Institution","Available","Current"])
+        self.table=QTableWidget(0,6)
+        self.table.setHorizontalHeaderLabels(["Nickname","Account","Type","Institution","Available","Current"])
         style_table(self.table); l.addWidget(self.table,1); self.refresh()
+
+    def _save_nickname(self, account_id, editor):
+        self.state.set_account_nickname(account_id, editor.text())
 
     def refresh(self):
         rows=self.state.accounts(); self.table.setRowCount(len(rows))
         for r,a in enumerate(rows):
+            nickname=QLineEdit()
+            nickname.setPlaceholderText("Optional nickname")
+            nickname.setText(a.nickname or "")
+            nickname.editingFinished.connect(
+                lambda account_id=a.id, editor=nickname: self._save_nickname(account_id,editor)
+            )
+            self.table.setCellWidget(r,0,nickname)
             vals=[a.name,a.kind,a.institution,"—" if a.available_balance is None else money(a.available_balance),money(a.current_balance)]
-            for c,val in enumerate(vals):
+            for offset,val in enumerate(vals,1):
                 item=QTableWidgetItem(val)
-                if c in (3,4): item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
-                self.table.setItem(r,c,item)
+                if offset in (4,5): item.setTextAlignment(Qt.AlignRight|Qt.AlignVCenter)
+                self.table.setItem(r,offset,item)
         header=self.table.horizontalHeader()
-        for c in range(5): header.setSectionResizeMode(c,QHeaderView.Stretch if c<3 else QHeaderView.ResizeToContents)
+        for col in range(6):
+            header.setSectionResizeMode(col,QHeaderView.Stretch if col<4 else QHeaderView.ResizeToContents)
 
 
 class StatementImportDialog(QDialog):
@@ -455,41 +467,6 @@ class StatementImportDialog(QDialog):
         self.accept()
 
 
-class TransactionsPage(QWidget):
-    def __init__(self, state, vault=None, parent=None):
-        super().__init__(parent); self.state=state; self.vault=vault
-        l=QVBoxLayout(self); l.setContentsMargins(28,24,28,28); l.setSpacing(16)
-        top=QHBoxLayout(); top.addWidget(page_header("Transactions","Search and review local or Plaid-synced activity.")); top.addStretch()
-        self.import_btn=QPushButton("Import statement"); self.import_btn.setObjectName("Primary"); self.import_btn.clicked.connect(self._import_statement)
-        top.addWidget(self.import_btn); l.addLayout(top)
-        self.search=QLineEdit(); self.search.setPlaceholderText("Search merchant, category, or account…"); l.addWidget(self.search)
-        self.table=transaction_table([]); l.addWidget(self.table,1)
-        self.search.textChanged.connect(lambda q: filter_table(self.table,q)); self.refresh()
-
-    def _import_statement(self):
-        if self.vault is None or not self.vault.unlocked:
-            QMessageBox.information(self,"Import statement","Unlock PrivateMoney before importing a statement.")
-            return
-        dialog=StatementImportDialog(self.state,self.vault,self)
-        dialog.exec()
-        self.refresh()
-
-    def _category_changed(self, transaction, category):
-        self.state.set_transaction_category(transaction,category)
-        filter_table(self.table,self.search.text())
-
-    def refresh(self):
-        fill_transaction_table(
-            self.table,
-            self.state.transactions(),
-            category_callback=self._category_changed,
-            categories=self.state.categories(),
-        )
-        filter_table(self.table,self.search.text())
-        self.import_btn.setEnabled(bool(self.vault and self.vault.unlocked))
-        self.import_btn.setToolTip("" if self.import_btn.isEnabled() else "Unlock PrivateMoney to import statements.")
-
-
 class BudgetsPage(QWidget):
     def __init__(self, state, parent=None):
         super().__init__(parent); self.state=state
@@ -512,6 +489,7 @@ class RecurringPage(QWidget):
         style_table(self.table); l.addWidget(self.table,1); self.refresh()
 
     def refresh(self):
+        self.table.clearSpans()
         rows=self.state.recurring(); self.table.setRowCount(len(rows))
         for r,x in enumerate(rows):
             vals=[x.merchant,x.category,f"{x.cadence} · {x.next_date:%b %d}",money(-x.amount)]
@@ -530,23 +508,105 @@ class NetWorthPage(QWidget):
     def refresh(self): self.chart.set_points(self.state.net_worth())
 
 
-class ReportsPage(QWidget):
-    def __init__(self, state, parent=None):
-        super().__init__(parent); self.state=state
-        l=QVBoxLayout(self); l.setContentsMargins(28,24,28,28); l.setSpacing(14)
-        l.addWidget(page_header("Reports","Combine filters to inspect exactly the activity you care about."))
+class CategoryTagFilter(QWidget):
+    changed=Signal()
 
-        grid=QGridLayout(); grid.setSpacing(14)
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._selected=[]
+        self._options=[]
+        self.layout=QHBoxLayout(self)
+        self.layout.setContentsMargins(0,0,0,0)
+        self.layout.setSpacing(6)
+        self.tags=QHBoxLayout()
+        self.tags.setSpacing(5)
+        self.layout.addLayout(self.tags)
+        self.input=QComboBox()
+        self.input.setEditable(True)
+        self.input.setInsertPolicy(QComboBox.NoInsert)
+        self.input.setMinimumWidth(170)
+        self.input.lineEdit().setPlaceholderText("Search categories…")
+        self.input.activated.connect(self._picked)
+        self.layout.addWidget(self.input,1)
+
+    def set_options(self, options):
+        self._options=list(options)
+        text=self.input.currentText()
+        self.input.blockSignals(True)
+        self.input.clear()
+        self.input.addItems([x for x in self._options if x not in self._selected])
+        self.input.setCurrentIndex(-1)
+        self.input.setEditText(text if text not in self._selected else "")
+        self.input.blockSignals(False)
+
+    def selected(self):
+        return list(self._selected)
+
+    def clear(self):
+        if not self._selected:
+            return
+        self._selected=[]
+        self._rebuild()
+        self.changed.emit()
+
+    def _picked(self, index):
+        value=self.input.itemText(index).strip()
+        if value and value not in self._selected:
+            self._selected.append(value)
+            self.input.setEditText("")
+            self._rebuild()
+            self.changed.emit()
+
+    def _remove(self, value):
+        if value in self._selected:
+            self._selected.remove(value)
+            self._rebuild()
+            self.changed.emit()
+
+    def _rebuild(self):
+        while self.tags.count():
+            item=self.tags.takeAt(0)
+            widget=item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        for value in self._selected:
+            tag=QToolButton()
+            tag.setText(value+"  ×")
+            tag.setToolTip("Remove "+value)
+            tag.clicked.connect(lambda checked=False, v=value: self._remove(v))
+            self.tags.addWidget(tag)
+        self.set_options(self._options)
+
+
+class TransactionsPage(QWidget):
+    def __init__(self, state, vault=None, parent=None):
+        super().__init__(parent); self.state=state; self.vault=vault; self._dates_initialized=False
+        l=QVBoxLayout(self); l.setContentsMargins(28,20,28,24); l.setSpacing(12)
+
+        top=QHBoxLayout()
+        top.addWidget(page_header("Transactions","Filter, review, categorize, and analyze tracked activity."))
+        top.addStretch()
+        self.import_btn=QPushButton("Import statement")
+        self.import_btn.setObjectName("Primary")
+        self.import_btn.clicked.connect(self._import_statement)
+        top.addWidget(self.import_btn)
+        l.addLayout(top)
+
+        grid=QGridLayout(); grid.setSpacing(12)
         self.spend=DonutChart([])
         self.cash=CashFlowChart([])
+        self.spend.setMaximumHeight(265)
+        self.cash.setMaximumHeight(265)
         grid.addWidget(card_with_title("Spending by category",self.spend),0,0)
         grid.addWidget(card_with_title("Income vs. spending",self.cash),0,1)
         l.addLayout(grid)
 
         filter_card=Card()
-        filters=QGridLayout(filter_card); filters.setContentsMargins(18,14,18,14); filters.setHorizontalSpacing(10); filters.setVerticalSpacing(9)
+        filters=QGridLayout(filter_card)
+        filters.setContentsMargins(16,12,16,12)
+        filters.setHorizontalSpacing(10); filters.setVerticalSpacing(7)
 
-        self.category_filter=QComboBox(); self.category_filter.setMinimumWidth(180)
+        self.category_filter=CategoryTagFilter()
         self.history_filter=QComboBox()
         self.history_filter.addItem("All history",None)
         self.history_filter.addItem("1 month",1)
@@ -554,10 +614,9 @@ class ReportsPage(QWidget):
         self.history_filter.addItem("6 months",6)
         self.history_filter.addItem("12 months",12)
 
-        self.start_date=QDateEdit(); self.start_date.setCalendarPopup(True); self.start_date.setSpecialValueText("Any start")
-        self.end_date=QDateEdit(); self.end_date.setCalendarPopup(True); self.end_date.setSpecialValueText("Any end")
+        self.start_date=QDateEdit(); self.start_date.setCalendarPopup(True)
+        self.end_date=QDateEdit(); self.end_date.setCalendarPopup(True)
         self.start_date.setMinimumDate(date(1900,1,1)); self.end_date.setMinimumDate(date(1900,1,1))
-        self.start_date.setDate(self.start_date.minimumDate()); self.end_date.setDate(self.end_date.minimumDate())
 
         self.min_amount=QLineEdit(); self.min_amount.setPlaceholderText("Min $")
         self.max_amount=QLineEdit(); self.max_amount.setPlaceholderText("Max $")
@@ -565,40 +624,73 @@ class ReportsPage(QWidget):
         self.merchant_filter=QLineEdit(); self.merchant_filter.setPlaceholderText("Merchant contains…")
 
         controls=[
-            ("Category",self.category_filter),
+            ("Categories",self.category_filter),
             ("History",self.history_filter),
             ("Start date",self.start_date),
             ("End date",self.end_date),
-            ("Dollar range",self.min_amount),
-            ("",self.max_amount),
+            ("Dollar min",self.min_amount),
+            ("Dollar max",self.max_amount),
             ("Account",self.account_filter),
             ("Merchant",self.merchant_filter),
         ]
         for idx,(label,widget) in enumerate(controls):
-            row=idx//4*2
+            row=(idx//4)*2
             col=idx%4
-            if label:
-                filters.addWidget(QLabel(label),row,col)
+            filters.addWidget(QLabel(label),row,col)
             filters.addWidget(widget,row+1,col)
 
-        self.clear_filters=QPushButton("Clear filters"); self.clear_filters.setObjectName("Secondary")
-        filters.addWidget(self.clear_filters,4,0,1,1)
-        self.category_summary=QLabel(); self.category_summary.setWordWrap(True); self.category_summary.setStyleSheet(f"color:{theme.MUTED}")
-        filters.addWidget(self.category_summary,4,1,1,3)
+        self.clear_filters=QPushButton("Reset filters"); self.clear_filters.setObjectName("Secondary")
+        filters.addWidget(self.clear_filters,4,0)
+        self.summary=QLabel(); self.summary.setWordWrap(True); self.summary.setStyleSheet(f"color:{theme.MUTED}")
+        filters.addWidget(self.summary,4,1,1,3)
         l.addWidget(filter_card)
+
+        bulk=Card()
+        bulk_l=QHBoxLayout(bulk); bulk_l.setContentsMargins(16,10,16,10)
+        bulk_l.addWidget(QLabel("Bulk categorize merchant"))
+        self.bulk_merchant=QComboBox(); self.bulk_merchant.setEditable(True); self.bulk_merchant.setMinimumWidth(240)
+        self.bulk_category=QComboBox(); self.bulk_category.setMinimumWidth(180)
+        self.bulk_apply=QPushButton("Apply to all"); self.bulk_apply.setObjectName("Secondary")
+        self.bulk_apply.clicked.connect(self._bulk_categorize)
+        bulk_l.addWidget(self.bulk_merchant,1); bulk_l.addWidget(self.bulk_category); bulk_l.addWidget(self.bulk_apply)
+        l.addWidget(bulk)
 
         self.transactions=transaction_table([])
         l.addWidget(self.transactions,1)
 
-        for combo in (self.category_filter,self.history_filter,self.account_filter):
+        self.category_filter.changed.connect(self._apply_filters)
+        for combo in (self.history_filter,self.account_filter):
             combo.currentIndexChanged.connect(self._apply_filters)
         self.start_date.dateChanged.connect(self._apply_filters)
         self.end_date.dateChanged.connect(self._apply_filters)
         self.min_amount.textChanged.connect(self._apply_filters)
         self.max_amount.textChanged.connect(self._apply_filters)
         self.merchant_filter.textChanged.connect(self._apply_filters)
-        self.clear_filters.clicked.connect(self._clear_filters)
+        self.clear_filters.clicked.connect(self._reset_filters)
         self.refresh()
+
+    def _import_statement(self):
+        if self.vault is None or not self.vault.unlocked:
+            QMessageBox.information(self,"Import statement","Unlock PrivateMoney before importing a statement.")
+            return
+        dialog=StatementImportDialog(self.state,self.vault,self)
+        dialog.exec()
+        self.refresh()
+
+    def _category_changed(self, transaction, category):
+        self.state.set_transaction_category(transaction,category)
+        self._apply_filters()
+
+    def _bulk_categorize(self):
+        merchant=self.bulk_merchant.currentText().strip()
+        category=self.bulk_category.currentText().strip()
+        if not merchant or not category:
+            return
+        changed=self.state.bulk_set_merchant_category(merchant,category)
+        if changed:
+            self.refresh()
+        else:
+            self.summary.setText(f"No transactions from {merchant} needed a category change.")
 
     @staticmethod
     def _parse_amount(text):
@@ -620,15 +712,15 @@ class ReportsPage(QWidget):
 
     def _filtered_rows(self):
         rows=self.state.transactions()
-        category=self.category_filter.currentData()
+        categories=set(self.category_filter.selected())
         account=self.account_filter.currentData()
         merchant=self.merchant_filter.text().strip().casefold()
         months=self.history_filter.currentData()
         min_amount=self._parse_amount(self.min_amount.text())
         max_amount=self._parse_amount(self.max_amount.text())
 
-        if category:
-            rows=[t for t in rows if t.category==category]
+        if categories:
+            rows=[t for t in rows if t.category in categories]
         if account:
             rows=[t for t in rows if t.account==account]
         if merchant:
@@ -637,12 +729,9 @@ class ReportsPage(QWidget):
             cutoff=self._subtract_months(date.today(),months)
             rows=[t for t in rows if t.posted>=cutoff]
 
-        if self.start_date.date()!=self.start_date.minimumDate():
-            start=self.start_date.date().toPython()
-            rows=[t for t in rows if t.posted>=start]
-        if self.end_date.date()!=self.end_date.minimumDate():
-            end=self.end_date.date().toPython()
-            rows=[t for t in rows if t.posted<=end]
+        start=self.start_date.date().toPython()
+        end=self.end_date.date().toPython()
+        rows=[t for t in rows if start<=t.posted<=end]
 
         if min_amount is not None:
             rows=[t for t in rows if abs(t.amount)>=min_amount]
@@ -674,51 +763,70 @@ class ReportsPage(QWidget):
 
     def _apply_filters(self, *_):
         rows=self._filtered_rows()
-        fill_transaction_table(self.transactions,rows)
+        fill_transaction_table(
+            self.transactions,
+            rows,
+            category_callback=self._category_changed,
+            categories=self.state.categories(),
+            account_labeler=self.state.account_display_name,
+        )
         self.spend.set_segments(self._spending_segments(rows))
         self.cash.set_rows(self._cashflow_rows(rows))
-
         spending=sum(-t.amount for t in rows if t.amount<0)
         income=sum(t.amount for t in rows if t.amount>0)
         net=sum(t.amount for t in rows)
-        self.category_summary.setText(
+        self.summary.setText(
             f"{len(rows)} transactions · spending {money(spending)} · income {money(income)} · net {money(net)}"
             if rows else "No matching transactions"
         )
 
-    def _clear_filters(self):
-        self.category_filter.setCurrentIndex(0)
+    def _reset_filters(self):
+        self.category_filter.clear()
         self.history_filter.setCurrentIndex(0)
         self.account_filter.setCurrentIndex(0)
-        self.start_date.setDate(self.start_date.minimumDate())
-        self.end_date.setDate(self.end_date.minimumDate())
-        self.min_amount.clear()
-        self.max_amount.clear()
-        self.merchant_filter.clear()
+        self.min_amount.clear(); self.max_amount.clear(); self.merchant_filter.clear()
+        rows=self.state.transactions()
+        oldest=min((t.posted for t in rows),default=date.today())
+        self.start_date.setDate(oldest)
+        self.end_date.setDate(date.today())
         self._apply_filters()
 
     def refresh(self):
-        previous_category=self.category_filter.currentData()
+        rows=self.state.transactions()
+        categories=self.state.categories()
+        self.category_filter.set_options(categories)
+
         previous_account=self.account_filter.currentData()
-
-        self.category_filter.blockSignals(True)
-        self.category_filter.clear()
-        self.category_filter.addItem("All categories",None)
-        for category in self.state.categories():
-            self.category_filter.addItem(category,category)
-        index=self.category_filter.findData(previous_category)
-        self.category_filter.setCurrentIndex(index if index>=0 else 0)
-        self.category_filter.blockSignals(False)
-
         self.account_filter.blockSignals(True)
         self.account_filter.clear()
         self.account_filter.addItem("All accounts",None)
-        for account in sorted({t.account for t in self.state.transactions() if t.account},key=str.casefold):
-            self.account_filter.addItem(account,account)
+        for account in self.state.accounts():
+            self.account_filter.addItem((account.nickname or "").strip() or account.name,account.name)
         index=self.account_filter.findData(previous_account)
         self.account_filter.setCurrentIndex(index if index>=0 else 0)
         self.account_filter.blockSignals(False)
 
+        merchants=sorted({t.merchant for t in rows if t.merchant},key=str.casefold)
+        current_merchant=self.bulk_merchant.currentText()
+        self.bulk_merchant.clear(); self.bulk_merchant.addItems(merchants)
+        if current_merchant:
+            self.bulk_merchant.setEditText(current_merchant)
+
+        current_category=self.bulk_category.currentText()
+        self.bulk_category.clear(); self.bulk_category.addItems(categories)
+        if current_category and current_category in categories:
+            self.bulk_category.setCurrentText(current_category)
+
+        if not self._dates_initialized:
+            oldest=min((t.posted for t in rows),default=date.today())
+            self.start_date.blockSignals(True); self.end_date.blockSignals(True)
+            self.start_date.setDate(oldest)
+            self.end_date.setDate(date.today())
+            self.start_date.blockSignals(False); self.end_date.blockSignals(False)
+            self._dates_initialized=True
+
+        self.import_btn.setEnabled(bool(self.vault and self.vault.unlocked))
+        self.import_btn.setToolTip("" if self.import_btn.isEnabled() else "Unlock PrivateMoney to import statements.")
         self._apply_filters()
 
 
@@ -900,13 +1008,15 @@ def fill_transaction_table(
     items,
     category_callback=None,
     categories=None,
+    account_labeler=None,
 ):
     table.clearSpans()
     table.setRowCount(len(items))
     options=list(categories or [])
 
     for r,t in enumerate(items):
-        values=[t.posted.strftime("%b %d"),t.merchant,t.category,t.account,money(t.amount)]
+        account_text=account_labeler(t.account) if callable(account_labeler) else t.account
+        values=[t.posted.strftime("%b %d"),t.merchant,t.category,account_text,money(t.amount)]
         for c,value in enumerate(values):
             if c == 2 and category_callback is not None:
                 combo=_NoWheelComboBox()
